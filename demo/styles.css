@@ -1,0 +1,77 @@
+/**
+ * demo/styles.css — 演示应用外壳(顶栏/画布容器) + 全局基础(reset / body)。
+ * 不属于库：库的 dist 样式只含 tl- 命名空间的组件样式，本文件是"宿主"自己
+ * 该写的东西 —— 也恰好演示了消费者如何为库容器铺背景、排版与占位。
+ */
+@layer reset, base, layout;
+
+/* ---------- reset ↯ 现代基准 ---------- */
+@layer reset {
+  *, *::before, *::after { box-sizing: border-box; }
+  * { margin: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  html, body, #root { height: 100%; }
+  button, input, select { font: inherit; color: inherit; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+/* ---------- base ↯ 全局基底(令牌带 tl- 前缀) ---------- */
+@layer base {
+  body {
+    font-family: var(--tl-font-sans);
+    font-size: var(--tl-fs-1);
+    line-height: var(--tl-lh);
+    background: var(--tl-bg);
+    color: var(--tl-text);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--tl-accent-soft); }
+}
+
+/* ---------- layout ↯ 外壳(仅本 demo) ---------- */
+@layer layout {
+  #topbar {
+    height: var(--tl-topbar-h);
+    padding-block: 0 var(--tl-sp-2);
+    padding-inline: var(--tl-sp-4);
+    display: flex;
+    align-items: center;
+    gap: var(--tl-sp-4);
+    background: var(--tl-bg);
+    border-block-end: 1px solid var(--tl-spacer);
+  }
+  #topbar h1 { font-size: var(--tl-fs-1); font-weight: 600; letter-spacing: .5px; color: var(--tl-text); }
+  #status {
+    font-size: var(--tl-fs-2);
+    color: var(--tl-muted);
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+  .theme-toggle {
+    flex: none;
+    margin-inline-start: auto;
+    padding: var(--tl-sp-1) var(--tl-sp-3);
+    border-radius: var(--tl-r-sm);
+    background: var(--tl-panel);
+    border: 1px solid var(--tl-border);
+    cursor: pointer;
+    font-size: var(--tl-fs-2);
+    color: var(--tl-muted);
+    transition: background-color var(--tl-motion-fast) ease, color var(--tl-motion-fast) ease;
+  }
+  .theme-toggle:hover { background: var(--tl-panel-hover); color: var(--tl-text); }
+
+  #canvas-wrap {
+    position: absolute;
+    inset-block: var(--tl-topbar-h) 0;   /* 顶=顶栏高，底=0：高度撑满视口下方 */
+    inset-inline: 0;
+    padding: var(--tl-sp-3);
+  }
+}

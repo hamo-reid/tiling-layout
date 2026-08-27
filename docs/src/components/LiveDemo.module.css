@@ -1,0 +1,52 @@
+/* LiveDemo 外壳样式(仅演示用)。变量全部来自库的 tl-* 令牌,随站点明暗主题自动切换。 */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: min(72vh, 640px);
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-r-lg, 10px);
+  overflow: hidden;
+  background: var(--tl-bg);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-sp-2, 8px);
+  padding: var(--tl-sp-2, 8px) var(--tl-sp-3, 12px);
+  border-bottom: 1px solid var(--tl-spacer);
+  background: var(--tl-panel);
+}
+
+.status {
+  font-size: var(--tl-fs-2, 12px);
+  color: var(--tl-muted);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: var(--tl-r-sm, 6px);
+  background: var(--tl-panel);
+  border: 1px solid var(--tl-border);
+  cursor: pointer;
+  font-size: var(--tl-fs-2, 12px);
+  color: var(--tl-text);
+  transition: background-color var(--tl-motion-fast, 120ms) ease, color var(--tl-motion-fast, 120ms) ease;
+}
+
+.btn:hover { background: var(--tl-panel-hover, var(--tl-panel)); }
+
+/* 舞台:库容器需要明确的定位上下文与高度 */
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: var(--tl-sp-2, 8px);
+}

@@ -1,0 +1,137 @@
+/**
+ * index.css — 库组件样式(仅 LayoutViewDom 渲染所需)。
+ * 视觉令牌见 tokens.css(深/浅主题)。
+ *
+ * 样式隔离：所有类名带 `tl-` 命名空间前缀，不会与宿主项目中的通用类名
+ * (area-box / corner / stage / preview-* 等)冲突；不包含任何全局 reset、
+ * body 或 demo 外壳样式 —— 那些由宿主(见 demo/styles.css)自行提供。
+ */
+@import "./tokens.css";
+
+@layer tl-components {
+  .tl-stage-wrap { position: absolute; inset: 0; overflow: hidden; }
+  .tl-stage {
+    position: absolute;
+    inset: 0;
+  }
+
+  .tl-area-box {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    background: var(--tl-panel);
+    border: var(--tl-region-gap, 2px) solid var(--tl-panel-line);
+    border-radius: var(--tl-radius, var(--tl-r-md));
+    overflow: hidden;
+  }
+  .tl-area-box:hover { background: var(--tl-panel-hover); }
+  .tl-area-box.tl-hot { background: var(--tl-panel-hover); border-color: var(--tl-accent-border); }
+
+  /* renderArea 自定义区域视觉层：位于内容之下、不挡交互；提供后去除库默认背景/描边 */
+  .tl-area-box.tl-custom { background: transparent; border-color: transparent; }
+  .tl-area-box > .tl-area-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .tl-area-box .tl-ahead,
+  .tl-area-box .tl-acontent { position: relative; z-index: 1; }
+
+  /* Content 内容容器(areaInstances 注册节点)：占满头部下方的剩余高度 */
+  .tl-area-content { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+
+  .tl-ahead {
+    flex: none;
+    box-sizing: border-box;
+    height: var(--tl-header-h, 26px);
+    padding-inline: var(--tl-pad-region, 8px);
+    display: flex;
+    align-items: center;
+    font-size: var(--tl-fs-2);
+    color: var(--tl-muted);
+    background: color-mix(in oklab, var(--tl-text) 7%, transparent);
+    cursor: grab;
+    user-select: none;
+  }
+  .tl-area-box.tl-hot .tl-ahead { color: var(--tl-text); background: var(--tl-accent-soft); }
+
+  .tl-acontent {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--tl-sp-2);
+    padding: var(--tl-pad-region, 8px);
+    color: var(--tl-muted);
+    font-size: var(--tl-fs-2);
+  }
+  .tl-acontent b { color: var(--tl-text); font-size: var(--tl-fs-1); }
+  .tl-acontent .tl-row { display: flex; gap: var(--tl-sp-2); align-items: center; }
+  .tl-demo-btn {
+    padding: var(--tl-sp-1) var(--tl-sp-3);
+    border-radius: var(--tl-r-sm);
+    background: var(--tl-panel);
+    border: 1px solid var(--tl-border);
+    color: var(--tl-text);
+    font-size: var(--tl-fs-2);
+    cursor: pointer;
+  }
+  .tl-demo-btn:hover { background: var(--tl-panel-hover); }
+  .tl-acontent input[type="range"] { width: 70%; accent-color: var(--tl-accent); }
+
+  .tl-asplit {
+    position: absolute;
+    cursor: ns-resize;
+    background: transparent;
+    z-index: 5;
+  }
+  .tl-asplit[data-vertical="true"] { cursor: ew-resize; }
+  .tl-asplit:hover { background: var(--tl-accent-border); }
+  /* hover 所在线的同向连通族整条高亮(与单段 hover 一致，但作用于整条被切分的长线) */
+  .tl-asplit-hot { background: var(--tl-accent-border); }
+
+  .tl-corner {
+    position: absolute;
+    box-sizing: border-box;
+    width: var(--tl-corner, 14px);
+    height: var(--tl-corner, 14px);
+    padding: 0;
+    background: transparent;
+    cursor: crosshair;
+    z-index: 6;
+    border: 0;
+  }
+  .tl-corner::before {
+    content: ""; position: absolute; left: 50%; top: 2px; bottom: 2px; width: 2px;
+    transform: translateX(-50%);
+    background: var(--tl-muted);
+  }
+  .tl-corner::after {
+    content: ""; position: absolute; top: 50%; left: 2px; right: 2px; height: 2px;
+    transform: translateY(-50%);
+    background: var(--tl-muted);
+  }
+  .tl-corner:hover::before, .tl-corner:hover::after,
+  .tl-corner.tl-hot::before, .tl-corner.tl-hot::after { background: var(--tl-accent); }
+  /* 自定义角标(renderCorner)时隐藏默认十字 */
+  .tl-corner.tl-custom::before, .tl-corner.tl-custom::after { display: none; }
+
+  /* 预览覆盖层：绝对定位、不挡交互 */
+  .tl-preview-layer { position: absolute; inset: 0; pointer-events: none; }
+  .tl-preview-block { background: var(--tl-accent-soft); border: 1.3px solid color-mix(in oklab, var(--tl-split-line) 50%, transparent); }
+  .tl-preview-line { background: var(--tl-accent); }
+  .tl-preview-join { background: var(--tl-ok-soft); border: 1.5px solid var(--tl-ok-border); }
+  .tl-preview-src { background: color-mix(in oklab, var(--tl-ok) 12%, transparent); border: 1px solid color-mix(in oklab, var(--tl-ok) 60%, transparent); }
+  .tl-preview-ghost { background: var(--tl-panel); opacity: .55; border: 1.2px solid var(--tl-border); }
+  .tl-preview-target { background: color-mix(in oklab, var(--tl-text) 6%, transparent); border: 1px solid var(--tl-border); }
+  .tl-preview-center { background: var(--tl-accent-soft); border: 1.5px solid var(--tl-accent-border); }
+  .tl-preview-slot { background: color-mix(in oklab, var(--tl-accent) 30%, transparent); border: 1.5px solid var(--tl-accent-border); }
+  .tl-preview-block, .tl-preview-line, .tl-preview-join, .tl-preview-src,
+  .tl-preview-ghost, .tl-preview-target, .tl-preview-center, .tl-preview-slot {
+    pointer-events: none;
+    position: absolute;
+  }
+}

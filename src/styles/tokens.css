@@ -1,0 +1,95 @@
+/**
+ * tokens.css — 设计令牌(Design Tokens)。
+ * 色彩用 OKLCH(感知均匀)，派生色用 color-mix()；深/浅两套主题，预留系统偏好。
+ *
+ * 命名空间：所有变量带 `tl-` 前缀 → 即使定义在 :root 也不会覆盖/污染宿主项目
+ * 自己的 --accent、--bg、--panel 等通用变量(样式隔离)。
+ */
+@layer tl-tokens {
+  :root {
+    color-scheme: dark;
+
+    /* 排版 */
+    --tl-font-sans: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    --tl-font-mono: "Cascadia Code", Consolas, ui-monospace, monospace;
+    --tl-fs-1: 14px;
+    --tl-fs-2: 12px;
+    --tl-lh: 1.5;
+
+    /* 尺度 ⌁ spacing / radius / line */
+    --tl-sp-1: 4px;
+    --tl-sp-2: 8px;
+    --tl-sp-3: 12px;
+    --tl-sp-4: 16px;
+    --tl-sp-6: 24px;
+    --tl-r-sm: 4px;
+    --tl-r-md: 6px;
+    --tl-topbar-h: 48px;
+
+    /* 表面/文本令牌 ⌁ */
+    --tl-bg: oklch(0.175 0.012 252);
+    --tl-spacer: oklch(0.12 0.011 252);
+    --tl-panel: oklch(0.225 0.013 252);
+    --tl-panel-hover: oklch(0.275 0.015 252);
+    --tl-panel-line: oklch(0.16 0.012 252);
+    --tl-border: oklch(0.32 0.014 252);
+
+    --tl-text: oklch(0.93 0.004 252);
+    --tl-muted: oklch(0.62 0.012 252);
+    --tl-split-line: oklch(0.94 0.004 252);
+
+    /* 品牌色 + 派生 */
+    --tl-accent: oklch(0.66 0.15 262);
+    --tl-accent-strong: oklch(0.73 0.16 262);
+    --tl-accent-border: color-mix(in oklab, var(--tl-accent) 60%, transparent);
+    --tl-accent-soft: color-mix(in oklab, var(--tl-accent) 22%, transparent);
+
+    /* 语义: 合并/停靠(绿) */
+    --tl-ok: oklch(0.75 0.14 160);
+    --tl-ok-soft: color-mix(in oklab, var(--tl-ok) 30%, transparent);
+    --tl-ok-border: color-mix(in oklab, var(--tl-ok) 62%, transparent);
+
+    /* 网格点、半透明描边(跟随主题) */
+    --tl-grid-dot: color-mix(in oklab, var(--tl-text) 5%, transparent);
+
+    --tl-motion-fast: 120ms;
+  }
+
+  /* 浅色主题：显式切换 */
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --tl-bg: oklch(0.955 0.003 252);
+    --tl-spacer: oklch(0.90 0.005 252);
+    --tl-panel: oklch(0.995 0 252);
+    --tl-panel-hover: oklch(0.92 0.006 252);
+    --tl-panel-line: oklch(0.86 0.006 252);
+    --tl-border: oklch(0.80 0.008 252);
+    --tl-text: oklch(0.24 0.02 252);
+    --tl-muted: oklch(0.5 0.015 252);
+    --tl-split-line: oklch(0.18 0.02 252);
+    --tl-accent: oklch(0.55 0.15 262);
+    --tl-accent-strong: oklch(0.47 0.15 262);
+    --tl-ok: oklch(0.52 0.14 160);
+    --tl-grid-dot: color-mix(in oklab, var(--tl-text) 8%, transparent);
+  }
+
+  /* 跟随系统(未显式指定主题时) */
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+      color-scheme: light;
+      --tl-bg: oklch(0.955 0.003 252);
+      --tl-spacer: oklch(0.90 0.005 252);
+      --tl-panel: oklch(0.995 0 252);
+      --tl-panel-hover: oklch(0.92 0.006 252);
+      --tl-panel-line: oklch(0.86 0.006 252);
+      --tl-border: oklch(0.80 0.008 252);
+      --tl-text: oklch(0.24 0.02 252);
+      --tl-muted: oklch(0.5 0.015 252);
+      --tl-split-line: oklch(0.18 0.02 252);
+      --tl-accent: oklch(0.55 0.15 262);
+      --tl-accent-strong: oklch(0.47 0.15 262);
+      --tl-ok: oklch(0.52 0.14 160);
+      --tl-grid-dot: color-mix(in oklab, var(--tl-text) 8%, transparent);
+    }
+  }
+}

@@ -1,0 +1,92 @@
+/* content.css — 演示内容组件样式(dc-* 命名空间,不属于库)。变量全部来自库的 tl-* 令牌。 */
+
+.dc-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 12px;
+  gap: 8px;
+}
+
+/* 编辑器 */
+.dc-editor {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-r-sm, 6px);
+  background: var(--tl-bg);
+  color: var(--tl-text);
+  padding: 8px 10px;
+  font: inherit;
+  line-height: 1.6;
+}
+.dc-editor:focus { outline: 1px solid var(--tl-accent); }
+
+/* 目录 */
+.dc-outline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+}
+.dc-outline-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--tl-r-sm, 6px);
+  background: transparent;
+  color: var(--tl-muted);
+  font: inherit;
+  font-size: var(--tl-fs-2, 12px);
+  cursor: pointer;
+}
+.dc-outline-item:hover { background: var(--tl-panel-hover, var(--tl-panel)); color: var(--tl-text); }
+.dc-outline-item.is-active {
+  background: var(--tl-accent-soft, var(--tl-accent));
+  color: var(--tl-text);
+}
+
+/* 属性 */
+.dc-props {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dc-props-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-r-sm, 6px);
+  background: var(--tl-panel);
+  font-size: var(--tl-fs-2, 12px);
+  color: var(--tl-muted);
+}
+.dc-props-row b { color: var(--tl-text); font-variant-numeric: tabular-nums; }
+.dc-props-row span { flex: 1; }
+.dc-btn {
+  padding: 2px 12px;
+  border-radius: var(--tl-r-sm, 6px);
+  border: 1px solid var(--tl-border);
+  background: var(--tl-bg);
+  color: var(--tl-text);
+  font: inherit;
+  cursor: pointer;
+}
+.dc-btn:hover { border-color: var(--tl-accent); color: var(--tl-accent); }
+
+/* 底注 */
+.dc-foot {
+  font-size: var(--tl-fs-2, 12px);
+  color: var(--tl-muted);
+  border-top: 1px dashed var(--tl-spacer);
+  padding-top: 6px;
+}

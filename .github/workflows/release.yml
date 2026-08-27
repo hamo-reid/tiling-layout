@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # 发布绝不中途取消
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 建 GitHub Release
+      id-token: write # npm provenance 的 OIDC 签名
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # 自带 npm 11.x;Trusted Publishing(OIDC)要求 npm ≥ 11.5
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - run: npm run typecheck && npm test && npm run build
+      # 发布事故拦截：tag 与 package.json 版本必须一致（防改码忘升版/打错 tag）
+      - name: 校验 tag 与 package.json 版本一致
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          [ "$TAG" = "$PKG" ] || { echo "::error::tag v$TAG != package.json $PKG"; exit 1; }
+      # prepublishOnly 钩子(build+test)仍在 npm 侧作最后防线，此处不重复跳过
+      # OIDC 免密发布(Trusted Publishing):权限来自 id-token: write + npm 包设置页的绑定
+      - run: npm publish --provenance --access public # scoped 包默认 restricted,必须显式公开
+      - name: 建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
