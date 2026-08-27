@@ -1,0 +1,214 @@
+/**
+ * Docusaurus 站点自定义样式。
+ * 品牌色对齐库的 OKLCH 令牌(src/styles/tokens.css:accent hue 262),站点默认暗色。
+ */
+
+:root {
+  --ifm-color-primary: oklch(0.66 0.15 262);
+  --ifm-color-primary-dark: oklch(0.6 0.15 262);
+  --ifm-color-primary-darker: oklch(0.55 0.14 262);
+  --ifm-color-primary-light: oklch(0.72 0.15 262);
+  --ifm-color-primary-lighter: oklch(0.78 0.14 262);
+
+  --ifm-font-family-base: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --ifm-font-family-monospace: "Cascadia Code", Consolas, ui-monospace, monospace;
+  --ifm-heading-font-weight: 650;
+  --ifm-line-height-base: 1.75;
+  --ifm-code-font-size: 88%;
+
+  --site-border: color-mix(in oklab, var(--ifm-font-color-base) 12%, transparent);
+  --site-panel: color-mix(in oklab, var(--ifm-background-color) 92%, var(--ifm-font-color-base) 4%);
+}
+
+html[data-theme="light"] {
+  --ifm-color-primary: oklch(0.52 0.16 262);
+  --ifm-color-primary-dark: oklch(0.47 0.15 262);
+  --ifm-color-primary-darker: oklch(0.44 0.15 262);
+  --ifm-color-primary-light: oklch(0.58 0.15 262);
+  --ifm-color-primary-lighter: oklch(0.63 0.14 262);
+}
+
+/* Docusaurus 3.10 将 --ifm-background-color 置为透明且不再绘制 body 背景,
+   显式补上,否则浅色模式会露出浏览器深色画布 */
+body {
+  background-color: var(--ifm-background-surface-color, var(--ifm-background-color));
+}
+
+/* ── 排版 ─────────────────────────────────────────────── */
+
+h1 { letter-spacing: -0.01em; }
+h2 { margin-top: 2.4rem; letter-spacing: -0.005em; }
+h3 { margin-top: 1.8rem; }
+
+article p { max-width: 72ch; }
+
+/* 行内代码:加个底色,和正文区分得更清楚 */
+.theme-code-inline, code {
+  border-width: 0;
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+}
+
+/* ── 组件细节 ─────────────────────────────────────────── */
+
+/* 代码块:窗格感 */
+div[class*="codeBlockContainer"] {
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+}
+div[class*="codeBlockTitle"] {
+  font-size: 0.82rem;
+  padding: 0.5rem 1rem;
+}
+
+/* 表格:去掉默认重边框,行 hover 轻提示 */
+table {
+  display: table;
+  width: 100%;
+  font-size: 0.92rem;
+}
+table thead th {
+  border-bottom: 1px solid var(--site-border);
+  background: transparent;
+}
+table td, table th {
+  border: none;
+  border-bottom: 1px solid var(--site-border);
+  padding: 0.55rem 0.9rem;
+}
+table tbody tr:hover { background: var(--site-panel); }
+
+/* 导航栏:半透明 + 毛玻璃 */
+.navbar {
+  background: color-mix(in oklab, var(--ifm-background-color) 82%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: none;
+  border-bottom: 1px solid var(--site-border);
+}
+
+/* 侧边栏目录更紧凑 */
+.menu__link {
+  line-height: 1.5;
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+
+/* 提示块收敛配色 */
+.admonition {
+  border-radius: 10px;
+  border-width: 0 0 0 3px;
+  font-size: 0.94rem;
+}
+
+/* 页脚弱化,与正文同底色 */
+.footer {
+  border-top: 1px solid var(--site-border);
+  background: var(--ifm-background-color);
+}
+.footer--dark {
+  --ifm-footer-background: var(--ifm-background-color);
+  --ifm-footer-title-color: var(--ifm-font-color-base);
+  --ifm-footer-link-color: var(--ifm-color-emphasis-700);
+}
+.footer__copyright { font-size: 0.82rem; opacity: 0.65; }
+
+/* ── 落地页 ───────────────────────────────────────────── */
+
+.landing-hero {
+  padding: 4.5rem 0 2.5rem;
+  text-align: center;
+}
+@media (max-width: 996px) {
+  .landing-hero { padding: 3rem 0 2rem; }
+}
+
+.landing-kicker {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ifm-color-primary);
+  margin-bottom: 1rem;
+}
+.landing-title {
+  font-size: clamp(2.4rem, 5vw, 3.6rem);
+  font-weight: 750;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0 0 1.2rem;
+}
+.landing-subtitle {
+  font-size: 1.15rem;
+  color: var(--ifm-color-emphasis-700);
+  max-width: 34em;
+  margin: 0 0 2rem;
+}
+.landing-cta { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+.landing-cta .button {
+  border-radius: 8px;
+  padding: 0.6rem 1.3rem;
+  font-weight: 600;
+}
+.landing-cta .button--secondary {
+  background: transparent;
+  border-color: var(--site-border);
+  color: var(--ifm-font-color-base);
+}
+.landing-cta .button--secondary:hover {
+  border-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary-light);
+  background: transparent;
+}
+
+/* 在线试用区:真实库驱动的可交互演示 */
+.landing-demo {
+  padding: 1rem 0 3.5rem;
+}
+.landing-demo-hint {
+  margin-top: 0.9rem;
+  font-size: 0.85rem;
+  color: var(--ifm-color-emphasis-600);
+  text-align: center;
+}
+
+/* 特性区:编号 + 标题 + 一行说明,不做图标墙 */
+.landing-features {
+  padding: 3.5rem 0 4.5rem;
+  border-top: 1px solid var(--site-border);
+}
+.landing-features-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2.2rem 3rem;
+}
+@media (max-width: 768px) {
+  .landing-features-grid { grid-template-columns: 1fr; gap: 1.8rem; }
+}
+.landing-feature { max-width: 42em; }
+.landing-feature-k {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.78rem;
+  color: var(--ifm-color-primary);
+  margin-bottom: 0.35rem;
+}
+.landing-feature h3 {
+  margin: 0 0 0.45rem;
+  font-size: 1.08rem;
+}
+.landing-feature p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.95rem;
+}
+.landing-feature p a { font-weight: 500; white-space: nowrap; }
+
+/* 底部 CTA */
+.landing-cta-strip {
+  border-top: 1px solid var(--site-border);
+  padding: 3rem 0 4.5rem;
+  text-align: center;
+}
+.landing-cta-strip h2 {
+  font-size: 1.5rem;
+  margin: 0 0 1.4rem;
+}

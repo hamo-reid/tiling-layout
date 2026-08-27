@@ -1,0 +1,38 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-ssr/
+*.local
+
+# 测试覆盖率产物
+coverage/
+
+# 日志
+*.log
+npm-debug.log*
+
+# 浏览器自动化测试临时产物
+.playwright-mcp/
+.vite/
+
+# codegraph 本地代码索引(工具产物)
+.codegraph/
+
+# 本地组件实验(不追踪)
+tmp/
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# 文档站点构建产物
+build/
+
+# Docusaurus 缓存
+.docusaurus/
+
+# TypeDoc 生成的 API 参考(由 docusaurus-plugin-typedoc 在构建/启动时自动生成)
+docs/docs/api/
