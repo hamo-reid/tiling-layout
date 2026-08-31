@@ -6,8 +6,8 @@ import dts from "vite-plugin-dts";
 export default defineConfig({
   plugins: [
     react(),
-    // 库模式：为 src(库)生成 .d.ts 声明
-    dts({ include: ["src"], insertTypesEntry: true }),
+    // 库模式：为 src(库)生成 .d.ts 声明，并合并为单一 index.d.ts
+    dts({ include: ["src"], rollupTypes: true }),
   ],
   build: {
     // 生产：打包为库(ESM + CJS)，不把 React/zustand 打进产物
@@ -16,10 +16,18 @@ export default defineConfig({
       name: "TilingLayout",
       formats: ["es", "cjs"],
       fileName: (fmt) => (fmt === "es" ? "tiling-layout.mjs" : "tiling-layout.cjs"),
+      cssFileName: "tiling-layout",
     },
     rollupOptions: {
-      external: ["react", "react-dom", "react/jsx-runtime", "zustand"],
+      external: ["react", "react/jsx-runtime", "zustand"],
+      // Vite 5 不支持 lib.cssFileName，用 assetFileNames 把 CSS 产物命名为 tiling-layout.css
+      output: { assetFileNames: "tiling-layout[extname]" },
     },
+    // 库产物不压缩(消费方打包器会再处理)，保留 sourcemap 便于消费方调试；
+    // cssMinify 默认跟随 minify，需单独开启
+    minify: false,
+    cssMinify: "esbuild",
+    sourcemap: true,
   },
   test: {
     environment: "node",
