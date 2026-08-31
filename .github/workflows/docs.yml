@@ -1,0 +1,55 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    # API 参考由 src/public-api.ts 经 TypeDoc 生成，src 变更同样需要重发文档
+    paths: ["src/**", "docs/**", "package.json", "package-lock.json", ".github/workflows/docs.yml"]
+  pull_request:
+    paths: ["src/**", "docs/**", "package.json", "package-lock.json", ".github/workflows/docs.yml"]
+  workflow_dispatch: # 支持手动补发文档
+
+concurrency:
+  group: docs-${{ github.ref }}
+  # PR 构建可取消；部署在另一 job 且仅 main 触发，不受此影响
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建文档站
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # 根目录与 docs/ 各有一份 lockfile，都要纳入缓存键
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            docs/package-lock.json
+      # TypeDoc 需要从 docs/ 解析 ../src/public-api.ts 与根 tsconfig，依赖根目录的 typescript/@types
+      - run: npm ci
+      - run: npm --prefix docs ci
+      - run: npm --prefix docs run build # onBrokenLinks/onBrokenMarkdownLinks 均为 throw，构建通过即死链体检通过
+      # 仅 main 的 push 需要部署产物；PR 构建只做验证
+      - if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build
+
+  deploy:
+    name: 部署到 GitHub Pages
+    # PR 只构建不部署；手动触发允许从非 main 分支部署属于误操作风险，同样限制 main
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # 写 Pages 站点
+      id-token: write # Pages 部署的 OIDC 验证
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

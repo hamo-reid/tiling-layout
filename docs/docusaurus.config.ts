@@ -12,12 +12,14 @@ const GITHUB_USER = "hamo-reid";
 const REPO_NAME = "tiling-layout";
 const SITE_URL = `https://${GITHUB_USER}.github.io`; // 注意:部署到 GH Pages 项目站时,baseUrl 要同步改为 `/${REPO_NAME}/`
 const REPO_URL = `https://github.com/${GITHUB_USER}/${REPO_NAME}`;
+// GitHub Pages 项目站路径前缀(https://<user>.github.io/<repo>),与 package.json homepage 一致
+const BASE_URL = `/${REPO_NAME}/`;
 
 const config: Config = {
   title: "Tiling Layout",
   tagline: "React 网格分割布局库 + 纯数据管理层",
   url: SITE_URL,
-  baseUrl: "/",
+  baseUrl: BASE_URL,
   onBrokenLinks: "throw",
   i18n: { defaultLocale: "zh-CN", locales: ["zh-CN"] },
   organizationName: GITHUB_USER, // GitHub 用户名/组织(docusaurus deploy 与 OG 元数据用)
