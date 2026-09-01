@@ -23,8 +23,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/tiling-layout.mjs",
-      "require": "./dist/tiling-layout.cjs"
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/tiling-layout.mjs" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/tiling-layout.cjs" }
     },
     "./package.json": "./package.json",
     "./styles.css": "./dist/tiling-layout.css"
@@ -37,14 +37,14 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/copy-dcts.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "docs": "npm --prefix docs run build",
     "docs:start": "npm --prefix docs run start",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },
   "peerDependencies": {
     "react": ">=18",

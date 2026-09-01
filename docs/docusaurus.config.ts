@@ -1,6 +1,7 @@
 import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
-import type { SidebarItem } from "@docusaurus/plugin-content-docs";
+// SidebarItem 是 lib/sidebars/types 的类型导出，主入口并不转出(浅路径会 TS2614)
+import type { SidebarItem } from "@docusaurus/plugin-content-docs/lib/sidebars/types.js";
 import { themes as prismThemes } from "prism-react-renderer";
 
 /* ────────────────────────────────────────────────────────────────────────────

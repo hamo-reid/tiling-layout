@@ -1,6 +1,9 @@
 {
+  // 供 CI 与编辑器对 docs/ 下的 TS 做 typecheck(docusaurus build 本身不查类型)。
+  // LiveDemo 跨目录 import ../../src 与 ../../demo，tsc 会跟随引用一并检查。
   "extends": "@docusaurus/tsconfig",
   "compilerOptions": {
     "baseUrl": "."
-  }
+  },
+  "include": ["src", "docusaurus.config.ts", "sidebars.ts"]
 }

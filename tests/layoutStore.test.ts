@@ -5,7 +5,7 @@ import { buildInitialScreen } from "../src/screen";
 import { getAreaState, setAreaState, useAreaState } from "../src/areaStore";
 import { collectSnapshot } from "../src/layoutData";
 
-/** 当前屏幕三类区域 id(buildInitialScreen 的 id 从 7 起，勿硬编码) */
+/** 当前屏幕三类区域 id(buildInitialScreen 从 _id=1 起分配 → 1/2/3，勿硬编码数值) */
 function ids() {
   const areas = useLayout.getState().screen.areas;
   return {
@@ -23,6 +23,7 @@ function resetLayout() {
     mode: "idle",
     status: "",
     cornerStart: { x: 0, y: 0 },
+    lastPt: { x: 0, y: 0 },
     srcId: null, hoverTId: null, splitDir: null, splitLine: 0, snapped: false, ctrl: false,
     resize: null, dock: null, maximizedId: null,
     past: [], future: [],
@@ -204,6 +205,30 @@ describe("layoutStore toggleSplitDir", () => {
     useLayout.getState().toggleSplitDir();
     expect(useLayout.getState().splitDir).toBe(G.AXIS.H);
   });
+  it("换向后按最近指针位置重算分割线(cornerUp 不再用错轴坐标落刀)", () => {
+    const st = useLayout.getState();
+    st.beginCorner(ids().editor, { x: 0.3, y: 0.5 }, false);
+    st.cornerMove(0.2, 0.5);          // V 向，splitLine=0.2(x 值)
+    expect(useLayout.getState().splitLine).toBe(0.2);
+    useLayout.getState().toggleSplitDir(); // → H 向：splitLine 必须重算为 y 值
+    const mid = useLayout.getState();
+    expect(mid.splitDir).toBe(G.AXIS.H);
+    expect(mid.splitLine).toBeCloseTo(0.5, 9); // lastPt.y=0.5，而非沿用 x=0.2
+    mid.cornerUp();
+    const fin = useLayout.getState();
+    expect(fin.screen.areas).toHaveLength(4);
+    // 落刀在 editor 内部 y≈0.5：存在上下两半(ymin=0.5 / ymax=0.5 的 editor 半块)
+    const halves = fin.screen.areas.filter((a) => a.contentType === "editor");
+    expect(halves).toHaveLength(2);
+    const ys = new Set(halves.flatMap((a) => [a.rect.ymin, a.rect.ymax]));
+    expect([...ys].some((y) => Math.abs(y - 0.5) < 1e-9)).toBe(true);
+  });
+  it("非 corner 模式(idle)下 splitDir 残留也不允许切换", () => {
+    // 复现审计缺陷：restore/中断路径留下脏 splitDir 时，Tab 不应误触
+    useLayout.setState({ splitDir: G.AXIS.V, splitLine: 0.2 });
+    useLayout.getState().toggleSplitDir();
+    expect(useLayout.getState().splitDir).toBe(G.AXIS.V); // 未变
+  });
   it("悬停目标时不允许切换方向", () => {
     const st = useLayout.getState();
     st.beginCorner(ids().editor, { x: 0.3, y: 0.5 }, false);
@@ -252,6 +277,113 @@ describe("layoutStore dock 停靠", () => {
 
     useLayout.getState().dockUp();
     expect(useLayout.getState().status).toBe("已取消");
+  });
+});
+
+describe("layoutStore resize 夹逼约束(全族成员)", () => {
+  beforeEach(resetLayout);
+
+  /** 命中 x=0.62 竖线的下段(properties 侧, y∈[0,gy]) */
+  function lowerVertSeg() {
+    return G.deriveEdges(useLayout.getState().screen)
+      .find((x) => x.v1.x === x.v2.x && Math.min(x.v1.y, x.v2.y) === 0)!;
+  }
+
+  it("向左拖不压破横跨整线的对侧区域(editor 全高，审计复现)", () => {
+    // 旧行为：editor 的沿线区间 [0,1] 与命中段 [0,gy] 不完全相等 → 被排除出
+    // 约束 → lo=-Infinity，可把 editor 拖到 0 宽。新行为：全族成员都参与夹逼。
+    useLayout.getState().beginResize(lowerVertSeg(), { x: 0.62, y: 0.2 });
+    useLayout.getState().resizeMove(0.01, 0.2);
+    const rects = useLayout.getState().screen.areas.map((a) => a.rect);
+    // 线被夹逼在 editor.xmin + MIN_AREA_W = 0.06，editor 不得低于最小宽度
+    expect(rects[0].xmax).toBeCloseTo(G.MIN_AREA_W, 9);
+    expect(rects[1].xmin).toBeCloseTo(G.MIN_AREA_W, 9);
+    expect(rects[2].xmin).toBeCloseTo(G.MIN_AREA_W, 9);
+    for (const r of rects) {
+      expect(r.width).toBeGreaterThanOrEqual(G.MIN_AREA_W - 1e-9);
+      expect(r.height).toBeGreaterThanOrEqual(G.MIN_AREA_H - 1e-9);
+    }
+  });
+
+  it("嵌套线族不产生几何反转(max 侧成员的远边参与夹逼)", () => {
+    // 构造：右列 C 再竖分 → 线族 max 侧出现 far edge=x0.81 的成员 C1；
+    // 旧行为命中下段时 hi=0.94，newV 可越过 0.81 使 C1 反转(xmin>xmax)
+    const s = useLayout.getState().screen;
+    G.split(s, s.areas.find((a) => a.contentType === "outline")!, G.AXIS.V, 0.5); // 0.62→1 分割
+    useLayout.setState({ screen: { ...s } });
+    const c1 = s.areas.find((a) => a.contentType === "outline" && a.rect.xmax < 1)!; // 左半(触 0.62 线)
+    expect(c1.rect.xmin).toBeCloseTo(0.62, 9);
+    expect(c1.rect.xmax).toBeCloseTo(0.81, 9);
+    const lowerSeg = G.deriveEdges(s)
+      .find((x) => x.v1.x === x.v2.x && Math.min(x.v1.y, x.v2.y) === 0)!;
+
+    useLayout.getState().beginResize(lowerSeg, { x: 0.62, y: 0.2 });
+    useLayout.getState().resizeMove(0.9, 0.2);
+    // C1 是 max 侧成员：内边随线移到夹逼位，远边(0.81)不动 → 无反转
+    expect(c1.rect.xmin).toBeCloseTo(0.75, 9); // 0.81 - MIN_AREA_W，而非 0.94
+    expect(c1.rect.xmax).toBeCloseTo(0.81, 9);
+    expect(c1.rect.xmax).toBeGreaterThan(c1.rect.xmin);
+  });
+
+  it("cancel 回滚已改写的几何，且不入历史栈", () => {
+    const before = useLayout.getState().screen.areas.map((a) => ({ ...a.rect }));
+    useLayout.getState().beginResize(lowerVertSeg(), { x: 0.62, y: 0.2 });
+    useLayout.getState().resizeMove(0.7, 0.2); // 几何已被原地改写
+    useLayout.getState().cancel();
+    const fin = useLayout.getState();
+    expect(fin.mode).toBe("idle");
+    expect(fin.status).toBe("已取消");
+    expect(fin.past).toHaveLength(0);          // 取消不污染 undo 栈
+    fin.screen.areas.forEach((a, i) => {
+      expect(a.rect).toEqual(before[i]);       // 「已取消」名副其实：几何还原
+    });
+  });
+
+  it("实际位移的 endResize 入历史栈(undo 回到拖拽前)；纯点击不入栈", () => {
+    useLayout.getState().beginResize(lowerVertSeg(), { x: 0.62, y: 0.2 });
+    useLayout.getState().resizeMove(0.7, 0.2);
+    useLayout.getState().endResize();
+    expect(useLayout.getState().past).toHaveLength(1);
+    const after = useLayout.getState().screen.areas.map((a) => a.rect.xmin);
+    useLayout.getState().undo();
+    const restored = useLayout.getState().screen.areas.map((a) => a.rect.xmin);
+    expect(restored).not.toEqual(after);
+    expect(restored[1]).toBeCloseTo(0.62, 9);  // 回到拖拽前
+
+    resetLayout();
+    useLayout.getState().beginResize(lowerVertSeg(), { x: 0.62, y: 0.2 });
+    useLayout.getState().endResize();          // 未发生位移
+    expect(useLayout.getState().past).toHaveLength(0);
+  });
+});
+
+describe("layoutStore 取消手势不污染历史栈", () => {
+  beforeEach(resetLayout);
+
+  it("cornerUp 纯取消(无拖拽)不产生 undo 条目", () => {
+    useLayout.getState().beginCorner(ids().editor, { x: 0.3, y: 0.5 }, false);
+    useLayout.getState().cornerUp();
+    expect(useLayout.getState().status).toBe("已取消");
+    expect(useLayout.getState().past).toHaveLength(0);
+  });
+  it("dockUp 纯取消(拖回自身)不产生 undo 条目", () => {
+    const st = useLayout.getState();
+    st.beginDock(ids().outline, { x: 0.7, y: 0.8 });
+    st.dockUp();
+    expect(useLayout.getState().status).toBe("已取消");
+    expect(useLayout.getState().past).toHaveLength(0);
+  });
+  it("分割/合并实际生效才入栈(undo 一步还原)", () => {
+    const st = useLayout.getState();
+    st.beginCorner(ids().editor, { x: 0.3, y: 0.5 }, false);
+    st.cornerMove(0.2, 0.5);
+    st.cornerUp();
+    expect(useLayout.getState().past).toHaveLength(1); // 分割生效
+    st.beginCorner(ids().outline, { x: 0.7, y: 0.8 }, false);
+    st.cornerMove(0.75, 0.8);
+    st.cornerMove(0.75, 0.2);
+    st.cornerUp(); // 合并生效
+    expect(useLayout.getState().past).toHaveLength(2);
   });
 });
 
@@ -316,6 +448,20 @@ describe("layoutStore cancel / restore", () => {
 
     useLayout.getState().restore(orig);
     expect(useLayout.getState().screen.areas.length).toBe(3); // 回到原 3 区
+  });
+  it("restore 清空手势残留字段(脏上下文不跨布局串场)", () => {
+    const st = useLayout.getState();
+    st.beginCorner(ids().editor, { x: 0.3, y: 0.5 }, false);
+    st.cornerMove(0.2, 0.5); // 留下 srcId/splitDir/splitLine/lastPt 等中间态
+    useLayout.getState().restore({ v: 1, areas: [], areaStates: {}, shared: { x: 0, rot: 0 } });
+    const fin = useLayout.getState();
+    expect(fin.srcId).toBeNull();
+    expect(fin.hoverTId).toBeNull();
+    expect(fin.splitDir).toBeNull();
+    expect(fin.splitLine).toBe(0);
+    expect(fin.snapped).toBe(false);
+    expect(fin.resize).toBeNull();
+    expect(fin.dock).toBeNull();
   });
 });
 

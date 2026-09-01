@@ -31,6 +31,8 @@ jobs:
       # TypeDoc 需要从 docs/ 解析 ../src/public-api.ts 与根 tsconfig，依赖根目录的 typescript/@types
       - run: npm ci
       - run: npm --prefix docs ci
+      - name: Typecheck 文档站 TS(docusaurus build 不查类型)
+        run: npm --prefix docs run typecheck
       - run: npm --prefix docs run build # onBrokenLinks/onBrokenMarkdownLinks 均为 throw，构建通过即死链体检通过
       # 仅 main 的 push 需要部署产物；PR 构建只做验证
       - if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

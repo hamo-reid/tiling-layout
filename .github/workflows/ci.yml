@@ -24,6 +24,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
-      - run: npm run build # 验证产物可构建
+      - run: npm run coverage # 含全部测试 + 覆盖率闸门(vite.config thresholds 低于水位即失败)
+      - run: npm run build # 验证产物可构建(含 index.d.cts 生成)
       - run: npm pack --dry-run # 打包体检：确认只含 dist + LICENSE + package.json

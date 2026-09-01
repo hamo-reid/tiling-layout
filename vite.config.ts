@@ -16,7 +16,8 @@ export default defineConfig({
       name: "TilingLayout",
       formats: ["es", "cjs"],
       fileName: (fmt) => (fmt === "es" ? "tiling-layout.mjs" : "tiling-layout.cjs"),
-      cssFileName: "tiling-layout",
+      // 注：Vite 5 的 lib 选项没有 cssFileName(Vite 6 才加入)；CSS 产物命名
+      // 由下方 assetFileNames 兜底为 tiling-layout.css
     },
     rollupOptions: {
       external: ["react", "react/jsx-runtime", "zustand"],
@@ -37,6 +38,14 @@ export default defineConfig({
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/index.ts", "src/public-api.ts", "src/styles/**"],
       reporter: ["text", "html"],
+      // 覆盖率闸门：低于当前水位(93/87/90)即失败，防回归；刻意留余量容许
+      // 个别防御分支的波动
+      thresholds: {
+        statements: 90,
+        branches: 82,
+        functions: 85,
+        lines: 90,
+      },
     },
   },
 });
