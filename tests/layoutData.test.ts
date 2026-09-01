@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applySnapshot, collectSnapshot, migrateSnapshot, serializeLayout, SNAPSHOT_VERSION } from "../src/layoutData";
 import { getAreaState, setAreaState } from "../src/areaStore";
 import { useScene } from "../src/sceneStore";
 import { buildInitialScreen } from "../src/screen";
+
+const good = { id: 1, contentType: "general", rect: [0, 0, 1, 1] };
 
 describe("migrateSnapshot 归一当前格式(v1 矩形)", () => {
   it("合法快照固定为当前版本并透传数据", () => {
@@ -43,6 +45,62 @@ describe("migrateSnapshot 归一当前格式(v1 矩形)", () => {
     const out = migrateSnapshot(old);
     expect(out.v).toBe(SNAPSHOT_VERSION);
     expect(out.areaStates).toEqual({});
+  });
+});
+
+describe("migrateSnapshot 入口硬化(比例坐标不变式)", () => {
+  it("坐标越出 [0,1] 舞台抛错", () => {
+    expect(() => migrateSnapshot({ v: 1, areas: [{ ...good, rect: [0.5, 0.5, 2, 2] }] })).toThrow(/越出/);
+    expect(() => migrateSnapshot({ v: 1, areas: [{ ...good, rect: [-1, -1, 0.5, 0.5] }] })).toThrow(/越出/);
+  });
+  it("区域 id 重复抛错(重复 id 会导致实例状态串写)", () => {
+    expect(() => migrateSnapshot({
+      v: 1,
+      areas: [good, { ...good, rect: [0, 0, 0.5, 0.5] }],
+    })).toThrow(/id 重复/);
+  });
+  it("非整数/非有限 id 抛错", () => {
+    expect(() => migrateSnapshot({ v: 1, areas: [{ ...good, id: 1.5 }] })).toThrow();
+    expect(() => migrateSnapshot({ v: 1, areas: [{ ...good, id: Number.NaN }] })).toThrow();
+  });
+  it("区域矩形重叠抛错(deriveEdges 会推导出错误分界线)", () => {
+    expect(() => migrateSnapshot({
+      v: 1,
+      areas: [
+        { id: 1, contentType: "general", rect: [0, 0, 0.6, 1] },
+        { id: 2, contentType: "general", rect: [0.5, 0, 1, 1] },
+      ],
+    })).toThrow(/重叠/);
+  });
+  it("未满铺单位舞台降级为 console.warn 放行(部分平铺可经公开 API 构造)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const out = migrateSnapshot({
+      v: 1,
+      areas: [{ id: 1, contentType: "general", rect: [0, 0, 0.5, 1] }], // 半舞台
+    });
+    expect(out.areas).toHaveLength(1);       // 不抛错
+    expect(warnSpy).toHaveBeenCalledOnce();  // 但有警告
+    expect(String(warnSpy.mock.calls[0][0])).toContain("未铺满舞台");
+    warnSpy.mockRestore();
+  });
+  it("未来版本(v 高于当前)fail-closed 拒绝；污染 v 归一", () => {
+    expect(() => migrateSnapshot({ v: SNAPSHOT_VERSION + 1, areas: [good] })).toThrow(/不支持的快照版本/);
+    expect(() => migrateSnapshot({ v: SNAPSHOT_VERSION + 99, areas: [good] })).toThrow();
+    // 非整数/非数字 v 视为污染，归一为当前版本
+    expect(migrateSnapshot({ v: 1.5, areas: [good] }).v).toBe(SNAPSHOT_VERSION);
+    expect(migrateSnapshot({ areas: [good] }).v).toBe(SNAPSHOT_VERSION); // v 缺失
+  });
+});
+
+describe("collectSnapshot meta.name", () => {
+  it("传入 name 时写入 meta；缺省不写该字段", () => {
+    const s = buildInitialScreen();
+    const named = collectSnapshot(s, "我的布局");
+    expect(named.meta?.name).toBe("我的布局");
+    expect(named.meta?.savedAt).toBeTypeOf("number");
+    const anon = collectSnapshot(s);
+    expect(anon.meta?.name).toBeUndefined();
+    expect(anon.meta?.savedAt).toBeTypeOf("number");
   });
 });
 

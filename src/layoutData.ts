@@ -67,15 +67,9 @@ function normalizeAreaEntry(e: unknown): AreaSnap {
   return { id: a.id, contentType: a.contentType, rect: [xmin, ymin, xmax, ymax] };
 }
 
-/** 校验矩形集合构成单位舞台的平铺：总面积=1 且互不重叠(内部)。
- *  两者合起来排除缝隙/重叠/越界组合——deriveEdges 只推导分界线，不校验平铺
- *  完整性，带病几何一旦入库会在渲染与命中环节静默出错。空数组视为合法退化布局。 */
-function assertTiling(areas: AreaSnap[]): void {
-  if (areas.length === 0) return;
-  const sum = areas.reduce((acc, a) => acc + (a.rect[2] - a.rect[0]) * (a.rect[3] - a.rect[1]), 0);
-  if (Math.abs(sum - 1) > TILE_EPS) {
-    throw new Error(`布局未铺满舞台(总面积=${sum.toFixed(9)}，应为 1)`);
-  }
+/** 校验矩形集合互不重叠(内部)：重叠会让 deriveEdges 推导出错误分界线、
+ *  命中与拖拽错位，属真实几何损坏，fail-closed 拒绝。 */
+function assertNoOverlap(areas: AreaSnap[]): void {
   for (let i = 0; i < areas.length; i++) {
     for (let j = i + 1; j < areas.length; j++) {
       const A = areas[i].rect, B = areas[j].rect;
@@ -88,6 +82,20 @@ function assertTiling(areas: AreaSnap[]): void {
   }
 }
 
+/** 提示矩形集合未铺满单位舞台。满铺是平铺模型的文档不变式，但通过公开 API
+ *  (addArea)程序化构造部分平铺是合法使用方式(docs 教学示例即如此)——库自身
+ *  的 collectSnapshot 也可能产出这类快照，硬拒绝会造成「自己写的数据自己
+ *  读不回」，且在 autosave 下被静默剔除；故降级为警告放行。 */
+function warnIfNotFullCover(areas: AreaSnap[]): void {
+  if (areas.length === 0) return;
+  const sum = areas.reduce((acc, a) => acc + (a.rect[2] - a.rect[0]) * (a.rect[3] - a.rect[1]), 0);
+  if (Math.abs(sum - 1) > TILE_EPS) {
+    console.warn(
+      `[tiling-layout] 布局未铺满舞台(总面积=${sum.toFixed(9)})：平铺模型约定区域铺满 [0,1]×[0,1]，本次按现状放行`,
+    );
+  }
+}
+
 /** 将任意快照归一为当前格式：校验结构并固定 v 字段。
  *  几何(areas)是重建 Screen 的承重数据，条目级字段缺失/非法直接抛错拒绝；
  *  areaStates 是实例状态(非承重)，仅剔除脏槽位、合法条目按引用透传。
@@ -96,7 +104,8 @@ function assertTiling(areas: AreaSnap[]): void {
  *  在此追加「先迁移到下一版、逐级归一」的迁移阶梯后放行历史版本。
  *  @param raw 任意来源的快照数据(JSON.parse 结果即可)，就地归一并返回同一对象
  *  @returns 结构合法、v 字段固定为当前版本的快照
- *  @throws 几何数据缺失/非法、平铺不完整或版本无法识别时抛错
+ *  @throws 几何数据缺失/非法、区域矩形重叠或版本无法识别时抛错；未满铺单位
+ *          舞台属可容忍退化，降级为 console.warn 放行(部分平铺可经公开 API 构造)
  * @category 快照与序列化
  */
 export function migrateSnapshot(raw: unknown): LayoutSnapshot {
@@ -115,7 +124,8 @@ export function migrateSnapshot(raw: unknown): LayoutSnapshot {
     if (ids.has(a.id)) throw new Error(`区域 id 重复(id=${a.id})`);
     ids.add(a.id);
   }
-  assertTiling(s.areas);
+  assertNoOverlap(s.areas);
+  warnIfNotFullCover(s.areas);
 
   s.areaStates ??= {};
   for (const [k, slots] of Object.entries(s.areaStates)) {

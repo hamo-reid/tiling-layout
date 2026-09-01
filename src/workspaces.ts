@@ -160,15 +160,29 @@ export function deserializeWorkspaces(raw: string): void {
   }
   if (typeof p.data !== "object" || p.data === null) throw new Error("无效的工作区数据");
 
-  // 每布局独立校验+归一：快照经 migrateSnapshot，history 缺失/非法归一为空栈
+  // 每布局独立校验+归一：快照经 migrateSnapshot，history 缺失/非法归一为空栈。
+  // 历史字符串与快照同级校验(软失败)：坏 JSON/非法平铺的条目剔除而非留到
+  // 首次 undo 时硬抛——与「单布局损坏只剔除」的容错哲学一致。
   const data: Record<string, WorkspaceData> = {};
+  const validHistory = (stack: unknown): string[] => {
+    if (!Array.isArray(stack)) return [];
+    return stack.filter((x): x is string => {
+      if (typeof x !== "string") return false;
+      try {
+        migrateSnapshot(JSON.parse(x));
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  };
   for (const [k, d] of Object.entries(p.data)) {
     try {
       if (typeof d !== "object" || d === null) throw new Error("容器非法");
       const wd = d as WorkspaceData;
       const snapshot = migrateSnapshot(wd.snapshot);
-      const past = Array.isArray(wd.history?.past) ? wd.history.past.filter((x): x is string => typeof x === "string") : [];
-      const future = Array.isArray(wd.history?.future) ? wd.history.future.filter((x): x is string => typeof x === "string") : [];
+      const past = validHistory(wd.history?.past);
+      const future = validHistory(wd.history?.future);
       data[k] = { snapshot, history: { past, future } };
     } catch (err) {
       console.warn(`[tiling-layout] 工作区「${k}」数据损坏，已跳过:`, err);

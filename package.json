@@ -22,7 +22,6 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
       "import": { "types": "./dist/index.d.ts", "default": "./dist/tiling-layout.mjs" },
       "require": { "types": "./dist/index.d.cts", "default": "./dist/tiling-layout.cjs" }
     },

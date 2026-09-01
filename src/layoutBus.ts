@@ -26,8 +26,12 @@ export interface LayoutEvent {
   snapshot: LayoutSnapshot;
 }
 /** 订阅回调：evt 为当前事件，prev 为上一次事件(首次触发为 null)。
- *  注意：回调在微任务中异步投递(同 tick 的多次变更折叠为一次)，需要同步
- *  响应时请改读 getSnapshot()。
+ *  注意两点：
+ *  1. 回调在微任务中异步投递(同 tick 的多次变更折叠为一次)，需要同步响应时
+ *     请改读 getSnapshot()。
+ *  2. 回调内**勿写回任一 store**：若写入改变了数据指纹(areas/areaStates/shared/
+ *     activeId)，会再次调度 flush → 再次触发本回调，形成微任务级自持循环并
+ *     饿死事件循环；幂等写回(指纹不变)至多多派发一次后停止，但也应避免。
  * @category 事件总线
  */
 export type Listener = (evt: LayoutEvent, prev: LayoutEvent | null) => void;

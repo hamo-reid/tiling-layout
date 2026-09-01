@@ -576,7 +576,9 @@ export const useLayout = create<LayoutStore>((set, get) => {
         if (c.max !== undefined) hi = Math.min(hi, c.max);
       }
       newV = Math.max(lo, Math.min(hi, newV));
-      if (newV === r.orig) return;             // 未产生位移：不改矩形(避免引用抖动与历史噪音)
+      // 仅「从未位移」时跳过写入(避免引用抖动)；已位移后指针精确回到起点也必须
+      // 写回 orig——否则几何停在最后一次位移位置，与指针目视位置不符
+      if (newV === r.orig && !r.dragged) return;
       r.dragged = true;
       for (const { area, side } of r.moved) {
         // min 侧矩形以内边(xmax/ymax)触线，max 侧以 xmin/ymin 触线；一律走 withRect 保持派生字段

@@ -12,7 +12,7 @@ import { DEMO_CONTENT_TYPES } from "../../../demo/content"; // 演示内容组�
 import styles from "./LiveDemo.module.css";
 
 const DEFAULT_HINT =
-  "就绪 — 角标 ⌖ 拖拽：同区分割 / 拖到相邻区合并 / Ctrl+拖交换内容 · 拖分界线调整大小 · Ctrl 吸附 · Tab 切方向 · Esc/右键 取消";
+  "就绪 — 角标 ⌖ 拖拽：同区分割 / 拖到相邻区合并 / Ctrl+拖交换内容 · 拖分界线调整大小 · Ctrl 吸附 · 角标手势中 Tab 切方向 · Esc/右键 取消";
 const SAVE_KEY = "tiling-layout-v1";
 
 /**

@@ -8,7 +8,7 @@ sidebar_position: 2
 
 ## 撤销与重做
 
-`useLayout` 内置快照式撤销。结构操作开始时自动记录操作前的快照,不需要你手动打点:
+`useLayout` 内置快照式撤销。结构操作**实际生效时**自动记录操作前的快照,不需要你手动打点——分割/合并/停靠在落下时入栈;调整大小在拖动确实发生位移后入栈,纯点击分界线与中途取消(Esc/右键)都不会留下 undo 条目:
 
 ```tsx
 import { useLayout } from "@drahamo/tiling-layout";
@@ -61,3 +61,5 @@ const norm = migrateSnapshot(raw); // 校验 + 固定 v = SNAPSHOT_VERSION
 ```
 
 当前版本(v1)只存区域矩形(分界线由相邻关系推导,不持久化)。未来格式演进时,在 `migrateSnapshot` 里新增升级分支即可,调用方流程不变。
+
+校验强度分级:几何是承重数据——条目缺失/非法、坐标越出 `[0,1]` 舞台、**区域矩形重叠**、区域 id 重复,任一命中都直接抛错拒绝;整数值 `v` 高于当前版本(未来格式)同样 fail-closed。唯一放宽的是"未铺满舞台"(如经 `addArea` 程序化构造的部分平铺):可容忍,载入时以 `console.warn` 提示。

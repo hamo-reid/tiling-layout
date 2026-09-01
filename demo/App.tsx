@@ -8,7 +8,7 @@ import { deserializeWorkspaces, serializeWorkspaces, WORKSPACES_KEY } from "../s
 import "./content"; // 演示内容组件(editor/outline/properties)
 
 const DEFAULT_HINT =
-  "就绪 — 角标 ⌖ 拖拽：同区分割 / 拖到相邻区合并 / Ctrl+拖交换内容 · 拖分界线调整大小 · Ctrl 吸附 · Tab 切方向 · Esc/右键 取消";
+  "就绪 — 角标 ⌖ 拖拽：同区分割 / 拖到相邻区合并 / Ctrl+拖交换内容 · 拖分界线调整大小 · Ctrl 吸附 · 角标手势中 Tab 切方向 · Esc/右键 取消";
 
 type Theme = "" | "light" | "dark"; // "" = 跟随系统
 const THEME_ICON: Record<Theme, string> = { "": "🌓", light: "☀️", dark: "🌙" };
@@ -22,7 +22,12 @@ export function App() {
   const [autoSave, setAutoSave] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+  // ""=跟随系统：必须移除属性(写空值属性会让 tokens.css 的 :not([data-theme]) 失效)
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "") root.removeAttribute("data-theme");
+    else root.dataset.theme = theme;
+  }, [theme]);
   const cycleTheme = () => setTheme(theme === "" ? "light" : theme === "light" ? "dark" : "");
 
   // 载入最近持久化工作区(刷新恢复)：优先整集合，回退旧单布局存档
