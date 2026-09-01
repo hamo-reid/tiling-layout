@@ -91,8 +91,16 @@ describe("deserializeWorkspaces 健壮性", () => {
     deserializeWorkspaces(json);           // 模拟刷新恢复：模块级 seq 回到 2
     const id = useWorkspaces.getState().create("L3");
     expect(id).toBe("layout-3");           // 若 seq 未同步会生成 layout-2
-    // 被恢复的 layout-2 数据完好未被覆盖
-    expect(useWorkspaces.getState().data["layout-2"]).toEqual(restoredData["layout-2"]);
+    // 被恢复的 layout-2 数据完好未被覆盖。savedAt 是"最后保存时间"戳：create 内
+    // saveInto 会刷新活跃布局的它(非内容字段，与 layoutBus 指纹排除 savedAt 同理)，
+    // 故通配之，其余字段严格比较——否则两次取时跨过毫秒边界时断言随机翻车(慢 CI 必现)
+    expect(useWorkspaces.getState().data["layout-2"]).toEqual({
+      ...restoredData["layout-2"],
+      snapshot: {
+        ...restoredData["layout-2"].snapshot,
+        meta: { ...restoredData["layout-2"].snapshot.meta, savedAt: expect.any(Number) },
+      },
+    });
     expect(useWorkspaces.getState().list.filter((l) => l.id === "layout-2")).toHaveLength(1);
   });
   it("幽灵布局(list 有 id 无 data)被剔除", () => {
