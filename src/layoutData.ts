@@ -33,13 +33,20 @@ export interface LayoutSnapshot {
 
 export const SNAPSHOT_VERSION = 1;
 
+/** 坐标/平铺校验容差：内部运算的累计浮点误差远低于此值，外部来源(反序列化)的
+ *  ulp 级噪声也应放行；超出容差即视为非法数据 */
+const COORD_EPS = 1e-9;
+/** 平铺完整性(总面积=1)校验容差，比单点坐标容差放宽一档以吸收多矩形累计误差 */
+const TILE_EPS = 1e-6;
+
 const isPlainObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** 校验一条区域条目为 [xmin,ymin,xmax,ymax]；几何非法直接抛错。 */
+/** 校验一条区域条目为 [xmin,ymin,xmax,ymax]；几何非法直接抛错。
+ *  校验内容：id 为非负整数、rect 各分量为有限值、正宽高、坐标位于 [0,1] 舞台内。 */
 function normalizeAreaEntry(e: unknown): AreaSnap {
   const a = e as Partial<AreaSnap> & Record<string, unknown>;
-  if (typeof a.id !== "number" || typeof a.contentType !== "string") {
+  if (typeof a.id !== "number" || !Number.isInteger(a.id) || a.id < 0 || typeof a.contentType !== "string") {
     throw new Error(`无效的区域条目(id=${String(a.id)})`);
   }
   if (!Array.isArray(a.rect)) {
@@ -53,24 +60,62 @@ function normalizeAreaEntry(e: unknown): AreaSnap {
   if (!(xmax - xmin > 0) || !(ymax - ymin > 0)) {
     throw new Error(`无效的区域矩形(id=${String(a.id)})`);
   }
+  // [0,1] 比例坐标不变式：坐标系语义由本层兜底，不依赖调用方守约
+  if (xmin < -COORD_EPS || ymin < -COORD_EPS || xmax > 1 + COORD_EPS || ymax > 1 + COORD_EPS) {
+    throw new Error(`区域矩形越出 [0,1] 舞台(id=${String(a.id)})`);
+  }
   return { id: a.id, contentType: a.contentType, rect: [xmin, ymin, xmax, ymax] };
+}
+
+/** 校验矩形集合构成单位舞台的平铺：总面积=1 且互不重叠(内部)。
+ *  两者合起来排除缝隙/重叠/越界组合——deriveEdges 只推导分界线，不校验平铺
+ *  完整性，带病几何一旦入库会在渲染与命中环节静默出错。空数组视为合法退化布局。 */
+function assertTiling(areas: AreaSnap[]): void {
+  if (areas.length === 0) return;
+  const sum = areas.reduce((acc, a) => acc + (a.rect[2] - a.rect[0]) * (a.rect[3] - a.rect[1]), 0);
+  if (Math.abs(sum - 1) > TILE_EPS) {
+    throw new Error(`布局未铺满舞台(总面积=${sum.toFixed(9)}，应为 1)`);
+  }
+  for (let i = 0; i < areas.length; i++) {
+    for (let j = i + 1; j < areas.length; j++) {
+      const A = areas[i].rect, B = areas[j].rect;
+      const ox = Math.min(A[2], B[2]) - Math.max(A[0], B[0]);
+      const oy = Math.min(A[3], B[3]) - Math.max(A[1], B[1]);
+      if (ox > COORD_EPS && oy > COORD_EPS) {
+        throw new Error(`区域矩形重叠(id=${areas[i].id} 与 id=${areas[j].id})`);
+      }
+    }
+  }
 }
 
 /** 将任意快照归一为当前格式：校验结构并固定 v 字段。
  *  几何(areas)是重建 Screen 的承重数据，条目级字段缺失/非法直接抛错拒绝；
  *  areaStates 是实例状态(非承重)，仅剔除脏槽位、合法条目按引用透传。
+ *  版本分派：整数值 v 超出当前版本(未来格式)fail-closed 拒绝——静默错读比失败
+ *  更危险；缺失/污染(非数字)的 v 归一为当前版本。v1 为初始版本，后续格式演进
+ *  在此追加「先迁移到下一版、逐级归一」的迁移阶梯后放行历史版本。
  *  @param raw 任意来源的快照数据(JSON.parse 结果即可)，就地归一并返回同一对象
  *  @returns 结构合法、v 字段固定为当前版本的快照
- *  @throws 几何数据缺失/非法时抛错
+ *  @throws 几何数据缺失/非法、平铺不完整或版本无法识别时抛错
  * @category 快照与序列化
  */
 export function migrateSnapshot(raw: unknown): LayoutSnapshot {
   if (!isPlainObj(raw)) throw new Error("无效的布局数据");
   const s = raw as Partial<LayoutSnapshot> & Record<string, unknown>;
+  if (typeof s.v === "number" && Number.isInteger(s.v) && s.v > SNAPSHOT_VERSION) {
+    throw new Error(`不支持的快照版本(v=${s.v}，当前最高 ${SNAPSHOT_VERSION})`);
+  }
   if (!Array.isArray(s.areas)) {
     throw new Error("无效的布局数据");
   }
   s.areas = s.areas.map(normalizeAreaEntry);
+  // 区域 id 是 areaStore 实例状态/历史栈的跨引用稳定键，重复 id 会导致状态串写
+  const ids = new Set<number>();
+  for (const a of s.areas) {
+    if (ids.has(a.id)) throw new Error(`区域 id 重复(id=${a.id})`);
+    ids.add(a.id);
+  }
+  assertTiling(s.areas);
 
   s.areaStates ??= {};
   for (const [k, slots] of Object.entries(s.areaStates)) {
@@ -82,11 +127,12 @@ export function migrateSnapshot(raw: unknown): LayoutSnapshot {
 
 /** 采集当前状态 → 快照(原始数据，非 JSON 字符串)
  *  @param screen 要采集的屏幕(通常为 useLayout 的 screen)
+ *  @param name 布局名称(写入 meta.name；缺省不写该字段)
  *  @returns 含几何/实例状态/共享数据的完整快照 */
-export function collectSnapshot(screen: G.Screen): LayoutSnapshot {
+export function collectSnapshot(screen: G.Screen, name?: string): LayoutSnapshot {
   return {
     v: SNAPSHOT_VERSION,
-    meta: { name: "未命名布局", savedAt: Date.now() },
+    meta: name === undefined ? { savedAt: Date.now() } : { name, savedAt: Date.now() },
     areas: screen.areas.map((a) => ({
       id: a.id,
       contentType: a.contentType,

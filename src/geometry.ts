@@ -88,10 +88,14 @@ const EPS = 1e-9;
 export function createScreen(): Screen {
   return { areas: [], _id: 1 };
 }
-/** 由四边构造矩形(重算派生字段)
+/** 由四边构造矩形(重算派生字段)；非有限坐标直接抛错——NaN/Infinity 一旦入库
+ *  会被派生字段、邻接判定与快照链路静默放大，故在几何层入口统一拒绝。
  * @category 几何
  */
 export function rect(xmin: number, ymin: number, xmax: number, ymax: number): Rect {
+  if (!Number.isFinite(xmin) || !Number.isFinite(ymin) || !Number.isFinite(xmax) || !Number.isFinite(ymax)) {
+    throw new Error(`无效的矩形坐标(须为有限值): [${xmin}, ${ymin}, ${xmax}, ${ymax}]`);
+  }
   return { xmin, ymin, xmax, ymax, width: xmax - xmin, height: ymax - ymin };
 }
 /** 向屏幕添加一个区域
@@ -115,21 +119,29 @@ export function areaRect(_s: Screen, a: Area): Rect {
 
 /** 派生字段安全的矩形替换：改单边后重算 width/height。
  *  Rect 的 width/height 是由四边推导的冗余字段，`{ ...r, xmax: ... }` 这类
- *  spread 直改会让派生字段失真——凡改边一律走本函数。
+ *  spread 直改会让派生字段失真——凡改边一律走本函数(坐标校验委托 rect)。
  *  @param r 原矩形
  *  @param patch 要替换的边(未提供的边保持原值)
- *  @returns 派生字段已重算的新矩形 */
+ *  @returns 派生字段已重算的新矩形
+ * @category 几何 */
 export function withRect(r: Rect, patch: Partial<Pick<Rect, "xmin" | "ymin" | "xmax" | "ymax">>): Rect {
-  const xmin = patch.xmin ?? r.xmin;
-  const ymin = patch.ymin ?? r.ymin;
-  const xmax = patch.xmax ?? r.xmax;
-  const ymax = patch.ymax ?? r.ymax;
-  return { xmin, ymin, xmax, ymax, width: xmax - xmin, height: ymax - ymin };
+  return rect(
+    patch.xmin ?? r.xmin,
+    patch.ymin ?? r.ymin,
+    patch.xmax ?? r.xmax,
+    patch.ymax ?? r.ymax,
+  );
 }
 
 /** 矩形四角坐标(左下/左上/右上/右下)，用于角标去重与共享角点判定 */
 function corners(r: Rect): [number, number][] {
   return [[r.xmin, r.ymin], [r.xmin, r.ymax], [r.xmax, r.ymax], [r.xmax, r.ymin]];
+}
+
+/** 角点归一化键：toFixed(6) 吸收外部来源(快照反序列化)的浮点误差，
+ *  findSharedEdge 与 joinAreas 共用同一容差口径(内部来源坐标位级一致，行为不变) */
+function cornerKey(p: [number, number]): string {
+  return `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
 }
 
 /* ------------------------------------------------------------ 查询(layout) --- */
@@ -231,15 +243,15 @@ export function findEdgeAtPos(s: Screen, x: number, y: number, tol = EDGE_TOLERA
 
 /** 两区域是否共享一条完整分界线(公共角点 ≥ 2，即公共边界段的两端同时是双方角点)。
  *  join 的前置条件；仅部分边界相邻(共享角点 < 2)不构成可合并。
+ *  角点比较走 cornerKey(toFixed(6))，反序列化引入的 ulp 级误差不阻断合并。
  *  @param a1 区域一
  *  @param a2 区域二
  *  @returns 共享完整分界线时 true */
 export function findSharedEdge(_s: Screen, a1: Area, a2: Area): boolean {
   if (a1 === a2) return false;
-  const c1 = corners(a1.rect).map((k) => k.join(","));
-  const set1 = new Set(c1);
+  const set1 = new Set(corners(a1.rect).map(cornerKey));
   let n = 0;
-  for (const k of corners(a2.rect)) if (set1.has(k.join(","))) n++;
+  for (const k of corners(a2.rect)) if (set1.has(cornerKey(k))) n++;
   return n >= 2;
 }
 
@@ -326,11 +338,10 @@ export function joinAreas(s: Screen, keep: Area, remove: Area): Area | null {
   const unionArea = (xmax - xmin) * (ymax - ymin);
   if (Math.abs(unionArea - (k.width * k.height + r.width * r.height)) > EPS) return null;
 
-  const key = (p: [number, number]) => `${p[0].toFixed(6)}_${p[1].toFixed(6)}`;
   const map = new Map<string, [number, number]>();
-  for (const a of [keep, remove]) for (const c of corners(a.rect)) map.set(key(c), c);
-  const v1 = map.get(key([xmin, ymin])), v2 = map.get(key([xmin, ymax]));
-  const v3 = map.get(key([xmax, ymax])), v4 = map.get(key([xmax, ymin]));
+  for (const a of [keep, remove]) for (const c of corners(a.rect)) map.set(cornerKey(c), c);
+  const v1 = map.get(cornerKey([xmin, ymin])), v2 = map.get(cornerKey([xmin, ymax]));
+  const v3 = map.get(cornerKey([xmax, ymax])), v4 = map.get(cornerKey([xmax, ymin]));
   if (!v1 || !v2 || !v3 || !v4) return null;
 
   keep.rect = rect(xmin, ymin, xmax, ymax);
