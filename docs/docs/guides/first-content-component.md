@@ -70,7 +70,7 @@ registerContent({
 | 事件 | 触发时机 |
 |---|---|
 | `onMount` | 区域首次渲染出该类型;分割/停靠产生新区域;切回该类型;恢复快照重建布局 |
-| `onUnmount` | 切换到别的类型;区域被合并吞并;恢复快照重建前的旧实例;组件树卸载 |
+| `onUnmount` | 切换到别的类型;区域被合并吞并;恢复快照重建前的旧实例;组件树卸载;类型被注销(`unregisterContent`) |
 | `defaults` 注入 | 仅当该槽位为空;由交换/停靠迁移来的状态不覆盖 |
 
 注意 `onMount`/`onUnmount` 是**每次挂载/卸载都会触发**(同一个区域切走再切回,就是一对新的 onMount/onUnmount),不是进程内一次。需要跨挂载存活的数据放实例状态(`defaults`/`setState`)或共享层,回调里只做 DOM/三方资源的建立与释放。
@@ -82,6 +82,22 @@ registerContent({
 - **区域卸载时**:清理回调先于容器 ref 注销,所以 `onUnmount` 里注册表与 `el` 都仍有效。
 - **组件抛错**只降级本面板(内置错误边界显示"面板已崩溃"),不会波及其他区域。
 
+## 注销内容类型
+
+要彻底下线一种内容类型,用 `unregisterContent`:
+
+```tsx
+import { unregisterContent } from "@drahamo/tiling-layout";
+
+const removed = unregisterContent("myeditor"); // true: 确实注销过;false: 本就没注册
+```
+
+它和重复调用 `registerContent` 是两件事:再次注册同类型是**替换定义**,实例状态原样保留(热替换);`unregisterContent` 是**移除**,注册定义删除,正显示该内容的区域立即回退通用占位,该类型在所有区域的实例状态也一并清除(其他类型的槽位不受影响)。
+
+注销时,当前存活的该类型实例会逐个触发 `onUnmount`(此时 `el` 仍有效,可安全释放三方资源),每个实例**至多一次**,之后的真实卸载不会重复调用。
+
+状态层对应的原语是 `removeAreaStatesByType`(按类型清槽),一般不需要直接调用。注意 undo/恢复快照会把实例状态整体写回,可能带回已注销类型的槽位:这不报错,区域照常显示占位;重新注册同类型后这些槽位原样接上(不注入 `defaults`)。
+
 ## 未注册的类型
 
 区域引用了一个没注册的 `contentType` 时,`Content` 会渲染一个通用占位,只显示类型名。注册之后,同样内容的区域自动换成你的组件,已有的实例状态原样接上:
@@ -91,6 +107,8 @@ import { Content } from "@drahamo/tiling-layout";
 <Content type="myeditor" areaId={9} />;  // 走注册的 MyEditor
 <Content type="unknown" areaId={10} />;  // 通用占位
 ```
+
+需要主动下线一种已注册的类型时,用 `unregisterContent`,见上文「注销内容类型」。
 
 ## 状态跟着布局操作走
 

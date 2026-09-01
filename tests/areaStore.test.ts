@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  cloneAreaState, getAreaState, hasAreaState, moveAreaState, removeAreaStates, setAreaState, swapAreaState, useAreaState,
+  cloneAreaState, getAreaState, hasAreaState, moveAreaState, removeAreaStates, removeAreaStatesByType, setAreaState, swapAreaState, useAreaState,
 } from "../src/areaStore";
 
 beforeEach(() => useAreaState.setState({ map: {} }));
@@ -72,5 +72,54 @@ describe("areaStore 迁移(外层条目整体操作)", () => {
     setAreaState(3, "viewport", { c: 3 });
     removeAreaStates([1, 3]);
     expect(useAreaState.getState().map).toEqual({ 2: { my: { b: 2 } } });
+  });
+});
+
+describe("removeAreaStatesByType 按类型清槽", () => {
+  it("只删该类型槽位，同区域其他类型保留", () => {
+    setAreaState(1, "viewport", { a: 1 });
+    setAreaState(1, "my", { b: 2 });
+    removeAreaStatesByType("viewport");
+    expect(hasAreaState(1, "viewport")).toBe(false);
+    expect(getAreaState(1, "viewport")).toEqual({});
+    expect(getAreaState(1, "my")).toEqual({ b: 2 });
+  });
+  it("跨区域清除同类型，区域空了整条删除", () => {
+    setAreaState(1, "viewport", { a: 1 });
+    setAreaState(2, "viewport", { c: 3 });
+    setAreaState(3, "my", { b: 2 });
+    removeAreaStatesByType("viewport");
+    expect(useAreaState.getState().map).toEqual({ 3: { my: { b: 2 } } });
+  });
+  it("类型无任何槽位时 no-op：不通知订阅且 state 引用不变", () => {
+    const fn = vi.fn();
+    const unsub = useAreaState.subscribe(fn);
+    removeAreaStatesByType("nope_t");
+    const before = useAreaState.getState();
+    removeAreaStatesByType("nope_t");
+    expect(useAreaState.getState()).toBe(before); // 返回原 state，Object.is 判等跳过通知
+    // 对照：有槽位时移除会通知一次(setAreaState 建槽本身也通知，按增量断言)
+    setAreaState(1, "t", { a: 1 });
+    const afterSet = fn.mock.calls.length;
+    removeAreaStatesByType("t");
+    expect(fn).toHaveBeenCalledTimes(afterSet + 1);
+    unsub();
+  });
+  it("空对象槽位也算存在，一并清除并删除空条目", () => {
+    setAreaState(2, "t", {});
+    expect(hasAreaState(2, "t")).toBe(true);
+    removeAreaStatesByType("t");
+    expect(useAreaState.getState().map[2]).toBeUndefined();
+  });
+  it("类型名撞上 Object.prototype 成员时仍为 no-op(hasOwnProperty 判定)", () => {
+    setAreaState(1, "mine", { a: 1 });
+    const fn = vi.fn();
+    const unsub = useAreaState.subscribe(fn);
+    const before = useAreaState.getState();
+    removeAreaStatesByType("toString");
+    removeAreaStatesByType("constructor");
+    expect(useAreaState.getState()).toBe(before); // 原型链同名不误置 touched
+    expect(fn).not.toHaveBeenCalled();
+    unsub();
   });
 });

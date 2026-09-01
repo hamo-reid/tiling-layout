@@ -53,7 +53,8 @@ export function setAreaState(id: number, type: string, patch: AreaState): void {
 }
 
 /* ---------------- 迁移——随网格操作保持内容实例连续 ----------------
- * 以下操作作用于外层条目(全部类型槽位随内容整体迁移)，不做类型级拆分。 */
+ * 以下操作作用于外层条目(全部类型槽位随内容整体迁移)，不做类型级拆分；
+ * 唯一的类型级拆分见下方 removeAreaStatesByType。 */
 
 /** 克隆：split 新生区域的实例状态继承来源区(浅拷贝外层，内层槽位靠写入侧不可变保证隔离)
  *  @param from 来源区域 id
@@ -98,6 +99,28 @@ export function removeAreaStates(ids: number[]): void {
     const map = { ...s.map };
     for (const id of ids) delete map[id];
     return { map };
+  });
+}
+/** 按类型清槽：把某内容类型在所有区域的实例状态一并移除(注销内容类型时用)。
+ *  与上方迁移原语相反，本原语做类型级拆分：只删内层该 type 槽，区域槽位空了整条移除；
+ *  该类型无任何槽位时返回原 state，zustand 按 Object.is 判等跳过——不产生空通知。
+ *  注意：对仍挂载中的已注册面板直接调用不会重注入 defaults(defaults 注入由挂载/注册
+ *  时机驱动)，面板将以空状态渲染——状态级清理请优先走 unregisterContent。
+ *  @param type 内容类型标识 */
+export function removeAreaStatesByType(type: string): void {
+  useAreaState.setState((s) => {
+    let touched = false;
+    const map: Record<number, AreaSlots> = {};
+    for (const [k, slots] of Object.entries(s.map)) {
+      // hasOwnProperty.call 而非 `in`：类型名撞上 Object.prototype 成员(toString 等)时
+      // `in` 恒为 true，会误置 touched 破坏 no-op 契约；key 是 string，重建转回 number
+      if (!Object.prototype.hasOwnProperty.call(slots, type)) { map[Number(k)] = slots; continue; }
+      touched = true;
+      const rest = { ...slots };
+      delete rest[type];
+      if (Object.keys(rest).length > 0) map[Number(k)] = rest; // 空了整条删除
+    }
+    return touched ? { map } : s;
   });
 }
 

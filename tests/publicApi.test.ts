@@ -16,10 +16,12 @@ describe("public-api 公开面契约", () => {
       // 数据 / 总线 / 状态机
       "collectSnapshot", "applySnapshot", "migrateSnapshot", "serializeLayout", "SNAPSHOT_VERSION",
       "layoutBus", "useLayout", "useLayoutData",
+      // 实例状态
+      "removeAreaStatesByType",
       // 工作区
       "useWorkspaces", "serializeWorkspaces", "deserializeWorkspaces", "WORKSPACES_KEY",
       // 渲染 / 主题
-      "Content", "registerContent", "getContentTitle", "LayoutViewDom", "LayoutProvider",
+      "Content", "registerContent", "unregisterContent", "getContentTitle", "LayoutViewDom", "LayoutProvider",
       "configToCssVars", "SPACING_DEFAULTS", "SIZING_DEFAULTS", "buildInitialScreen",
     ] as (keyof typeof api)[]) {
       expect(api[name], `导出 ${name} 缺失`).toBeDefined();

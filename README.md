@@ -8,7 +8,7 @@ Vite · React 18 · TypeScript · zustand · Vitest
 ## 功能
 - **平铺布局操作**：角标拖拽(同区=分割 / 拖到相邻区=合并 / Ctrl+交换)；拖分界线调整大小(连通线族整体平移、保持矩形)；区域内部拖动=停靠(5 位热区：中心/四边分裂)；**双击区域头部=最大化(全屏)/Esc 恢复**。
 - **单一渲染组件**：真实 DOM(`LayoutViewDom`，区域可承载任意 React 内容)。
-- **内容类型注册**：`registry` 声明每类型 per-area 状态默认值 + 渲染组件。
+- **内容类型注册**：`registry` 声明每类型 per-area 状态默认值 + 渲染组件；`unregisterContent` 注销类型(存活实例清理 + 状态随类型清除)。
 - **命令式组件查询**：`getAreaComponent(areaId)` / `getComponentsByType(type)` 按 id/类型取当前存活区域的内容容器 DOM。
 - **明暗主题**：OKLCH tokens + `@layer` 现代 CSS。
 

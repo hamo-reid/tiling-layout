@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen as rtlScreen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen as rtlScreen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import { Content, getContentTitle, registerContent } from "../src/registry";
+import { clearContentRegistry, Content, getContentTitle, registerContent, unregisterContent } from "../src/registry";
 import type { ContentProps } from "../src/registry";
 import { clearAreaInstances, getAreaComponent, getComponentsByType } from "../src/areaInstances";
-import { getAreaState, setAreaState, useAreaState } from "../src/areaStore";
+import { getAreaState, hasAreaState, setAreaState, useAreaState } from "../src/areaStore";
 
 beforeEach(() => {
   clearAreaInstances();
@@ -169,6 +169,194 @@ describe("registerContent 生命周期回调", () => {
     expect([...mounted].sort()).toEqual([61, 62]);
     unmount();
     expect(unmounted.sort()).toEqual([61, 62]);
+  });
+});
+
+describe("unregisterContent 注销内容类型", () => {
+  // 文件级 beforeEach 不清注册表；本组涉及注册/注销与 tornDownAreas 标记，需彻底复位
+  beforeEach(() => clearContentRegistry());
+
+  it("未注册类型注销返回 false 且无副作用", () => {
+    expect(unregisterContent("ur_never")).toBe(false);
+    expect(useAreaState.getState().map).toEqual({});
+  });
+
+  it("注销后返回 true，面板回退通用占位且槽位清空", () => {
+    registerContent({ type: "ur_t", defaults: { count: 1 }, Comp: CounterPanel });
+    const { container } = render(<Content type="ur_t" areaId={41} />);
+    expect(container.textContent).not.toContain("通用面板");
+    let removed = false;
+    act(() => { removed = unregisterContent("ur_t"); });
+    expect(removed).toBe(true);
+    expect(container.textContent).toContain("通用面板");
+    expect(container.textContent).toContain("ur_t"); // 标题回退链最终落到 type 原文
+    expect(useAreaState.getState().map[41]).toBeUndefined(); // 唯一槽位清空后外层整条删除
+    expect(getAreaState(41, "ur_t")).toEqual({});
+  });
+
+  it("注销时对每个存活实例触发 onUnmount 且 ctx 有效，之后真实卸载不重复", () => {
+    const calls: { areaId: number; contentType: string; elClass: string }[] = [];
+    registerContent({
+      type: "ur_m",
+      defaults: { count: 0 },
+      Comp: CounterPanel,
+      onUnmount: ({ areaId, contentType, el }) =>
+        calls.push({ areaId, contentType, elClass: el.className }),
+    });
+    const { unmount } = render(
+      <>
+        <Content type="ur_m" areaId={71} />
+        <Content type="ur_m" areaId={72} />
+      </>,
+    );
+    act(() => { unregisterContent("ur_m"); });
+    expect(calls.map((c) => c.areaId)).toEqual([71, 72]); // getComponentsByType 按 areaId 升序
+    expect(calls[0]).toMatchObject({ contentType: "ur_m" });
+    expect(calls[0].elClass).toContain("tl-area-content");
+    unmount(); // 真实卸载：tornDownAreas 标记命中，不再重复触发
+    expect(calls.map((c) => c.areaId)).toEqual([71, 72]);
+  });
+
+  it("注销只清该类型槽位，同区域其他类型保留", () => {
+    registerContent({ type: "ur_a", defaults: { count: 1 }, Comp: CounterPanel });
+    render(<Content type="ur_a" areaId={43} />);
+    setAreaState(43, "ur_other", { b: 2 });
+    act(() => { unregisterContent("ur_a"); });
+    expect(hasAreaState(43, "ur_a")).toBe(false);
+    expect(getAreaState(43, "ur_other")).toEqual({ b: 2 });
+  });
+
+  it("注销后再注册同类型：仍挂载的面板自动恢复渲染并重新注入 defaults", () => {
+    registerContent({ type: "ur_r", defaults: { count: 1 }, Comp: CounterPanel });
+    const { container } = render(<Content type="ur_r" areaId={44} />);
+    act(() => { unregisterContent("ur_r"); });
+    expect(container.textContent).toContain("通用面板");
+    expect(hasAreaState(44, "ur_r")).toBe(false);
+    // 注册表是响应式的(版本号订阅)：重注册无需外部渲染源，面板立即恢复
+    act(() => { registerContent({ type: "ur_r", defaults: { count: 3 }, Comp: CounterPanel }); });
+    expect(rtlScreen.getByTestId("count")).toHaveTextContent("3");
+    expect(hasAreaState(44, "ur_r")).toBe(true);
+  });
+
+  it("注销再注册后切走再切回：新 def 的 onMount/onUnmount 重新成对", () => {
+    const calls: string[] = [];
+    registerContent({
+      type: "ur_lc", defaults: { count: 1 }, Comp: CounterPanel,
+      onMount: () => calls.push("mount:1"),
+      onUnmount: () => calls.push("unmount:1"),
+    });
+    registerContent({ type: "ur_other_lc", defaults: { count: 9 }, Comp: CounterPanel });
+    const { rerender, unmount } = render(<Content type="ur_lc" areaId={45} />);
+    expect(calls).toEqual(["mount:1"]);
+    act(() => { unregisterContent("ur_lc"); });
+    expect(calls).toEqual(["mount:1", "unmount:1"]); // 注销触发旧 def 的 onUnmount
+    act(() => {
+      registerContent({
+        type: "ur_lc", defaults: { count: 2 }, Comp: CounterPanel,
+        onMount: () => calls.push("mount:2"),
+        onUnmount: () => calls.push("unmount:2"),
+      });
+    });
+    rerender(<Content type="ur_other_lc" areaId={45} />); // 切走：标记被消费，旧 onUnmount 不重复
+    expect(calls).toEqual(["mount:1", "unmount:1"]);
+    rerender(<Content type="ur_lc" areaId={45} />); // 切回：新 def 重新挂载
+    expect(calls).toEqual(["mount:1", "unmount:1", "mount:2"]);
+    expect(getAreaState(45, "ur_lc").count).toBe(2); // defaults 已重新注入
+    unmount();
+    expect(calls).toEqual(["mount:1", "unmount:1", "mount:2", "unmount:2"]);
+  });
+
+  it("无存活实例但有槽位时也清槽，且不触发 onUnmount", () => {
+    const unmounted: number[] = [];
+    registerContent({
+      type: "ur_s", defaults: { count: 0 }, Comp: CounterPanel,
+      onUnmount: ({ areaId }) => unmounted.push(areaId),
+    });
+    setAreaState(81, "ur_s", { count: 9 });
+    expect(unregisterContent("ur_s")).toBe(true); // 裸调(无挂载组件，无需 act)
+    expect(useAreaState.getState().map[81]).toBeUndefined();
+    expect(unmounted).toEqual([]);
+  });
+
+  it("onUnmount 抛错不阻断其余实例清理与清槽", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const cleaned: number[] = [];
+      registerContent({
+        type: "ur_boom", defaults: { count: 0 }, Comp: CounterPanel,
+        onUnmount: ({ areaId }) => {
+          if (areaId === 91) throw new Error("unmount boom");
+          cleaned.push(areaId);
+        },
+      });
+      render(
+        <>
+          <Content type="ur_boom" areaId={91} />
+          <Content type="ur_boom" areaId={92} />
+        </>,
+      );
+      act(() => { unregisterContent("ur_boom"); }); // 不向外抛
+      expect(cleaned).toEqual([92]); // 第二个实例仍被清理
+      expect(hasAreaState(91, "ur_boom")).toBe(false);
+      expect(hasAreaState(92, "ur_boom")).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("无 defaults 且从未写状态的类型注销后，面板也立即回退占位", () => {
+    registerContent({ type: "ur_nostate", Comp: () => <div>PROBE-NOSTATE</div> });
+    const { container } = render(<Content type="ur_nostate" areaId={47} />);
+    expect(container.textContent).toContain("PROBE-NOSTATE");
+    expect(useAreaState.getState().map[47]).toBeUndefined(); // 全程无槽位
+    act(() => { expect(unregisterContent("ur_nostate")).toBe(true); });
+    // 版本递增驱动重渲染，回退不依赖槽位变更
+    expect(container.textContent).toContain("通用面板");
+    expect(container.textContent).not.toContain("PROBE-NOSTATE");
+  });
+
+  it("占位期间注销的标记不跨类型滞留：切走再卸载，新类型 onUnmount 仍触发", () => {
+    const calls: string[] = [];
+    registerContent({
+      type: "ur_y", defaults: { count: 1 }, Comp: CounterPanel,
+      onMount: () => calls.push("Y:mount"),
+      onUnmount: () => calls.push("Y:unmount"),
+    });
+    const { rerender, unmount } = render(<Content type="ur_y" areaId={46} />);
+    rerender(<Content type="ur_ghost_t" areaId={46} />); // 切到未注册类型 → 占位，effect 闭包 def=null
+    act(() => {
+      registerContent({
+        type: "ur_ghost_t", defaults: { count: 0 }, Comp: CounterPanel,
+        onUnmount: () => calls.push("T:unmount"),
+      });
+    });
+    act(() => { unregisterContent("ur_ghost_t"); }); // 写入 (46, ur_ghost_t) 标记
+    rerender(<Content type="ur_y" areaId={46} />); // 切回：null 闭包清理无条件消费同键标记
+    unmount();
+    // Y 的 onUnmount 不被过期标记吞掉(修复前：按 areaId 单键会漏掉最后一次 Y:unmount)
+    expect(calls).toEqual(["Y:mount", "Y:unmount", "T:unmount", "Y:mount", "Y:unmount"]);
+  });
+
+  it("fan-out 中回调同步卸载兄弟面板：其 onUnmount 不被循环补刀重复触发", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const calls: string[] = [];
+      let unmountB: () => void = () => {};
+      registerContent({
+        type: "ur_re", defaults: { count: 0 }, Comp: CounterPanel,
+        onUnmount: ({ areaId }) => {
+          calls.push(`unmount:${areaId}`);
+          if (areaId === 93) unmountB(); // 同步卸载兄弟(模拟 flushSync 型重入)：其真实清理先行于循环
+        },
+      });
+      render(<Content type="ur_re" areaId={93} />);
+      const b = render(<Content type="ur_re" areaId={94} />);
+      unmountB = b.unmount;
+      act(() => { unregisterContent("ur_re"); });
+      expect(calls).toEqual(["unmount:93", "unmount:94"]); // 94 恰一次，无循环补刀
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

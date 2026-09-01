@@ -19,7 +19,8 @@ export { buildInitialScreen, CONTENT } from "./screen";
 // 每区域实例状态
 export {
   useAreaState, getAreaState, setAreaState,
-  cloneAreaState, swapAreaState, moveAreaState, removeAreaStates, useAreaInstance,
+  cloneAreaState, swapAreaState, moveAreaState, removeAreaStates, removeAreaStatesByType,
+  useAreaInstance,
 } from "./areaStore";
 export type { AreaState, AreaSlots, AreaStateStore } from "./areaStore";
 
@@ -55,7 +56,7 @@ export type { LayoutInfo, WSStore, WorkspaceData } from "./workspaces";
 // 内容注册 / 渲染 / 主题
 // (clearContentRegistry 为 @internal：测试/热重载用，不进入公开面)
 export {
-  Content, registerContent, getContentTitle,
+  Content, registerContent, unregisterContent, getContentTitle,
 } from "./registry";
 export type { ContentProps, ContentDef, ContentLifecycleCtx } from "./registry";
 export { getAreaComponent, getComponentsByType } from "./areaInstances";
