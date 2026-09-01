@@ -67,12 +67,22 @@ function boxPct(r: G.Rect) {
   };
 }
 
+/** 库的(唯一)渲染组件的 props
+ * @category 渲染与主题
+ */
+export interface LayoutViewDomProps {
+  /** 视觉/间距配置(实例级覆盖，展开为 --tl-* CSS 变量) */
+  theme?: LayoutConfig;
+  /** 渲染插槽(定制头部/角标/分界线/区域盒/预览层；不传用默认外观) */
+  slots?: RenderSlots;
+}
+
 /** 库的(唯一)渲染组件：把 layoutStore 的几何渲染为可交互 DOM。
  *  @param props `theme` 视觉/间距配置(实例级覆盖，展开为 --tl-* CSS 变量)；
  *               `slots` 渲染插槽(定制头部/角标/分界线/区域盒/预览层；不传用默认外观)
  * @category 渲染与主题
  */
-export function LayoutViewDom(props: { theme?: LayoutConfig; slots?: RenderSlots } = {}) {
+export function LayoutViewDom(props: LayoutViewDomProps = {}) {
   const { theme, slots } = props;
   const screen = useLayout((s) => s.screen);
   const mode = useLayout((s) => s.mode);
@@ -104,9 +114,14 @@ export function LayoutViewDom(props: { theme?: LayoutConfig; slots?: RenderSlots
     return new Set([...G.connectedSegs(screen, seg)].map((x) => x.id));
   }, [hoverEdgeId, segs, screen]);
 
-  /** 屏幕像素 → 归一化比例(x 向右、y 向上) */
+  /** 屏幕像素 → 归一化比例(x 向右、y 向上)。
+   *  容器不可量测(0 宽高，如 display:none 祖先或未布局)时返回 null——
+   *  此时换算会产生 Infinity/NaN，一旦入库会被快照链路静默放大成数据丢失 */
   const ptToMath = (e: { clientX: number; clientY: number }) => {
-    const r = wrapRef.current!.getBoundingClientRect();
+    const el = wrapRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
     return {
       x: (e.clientX - r.left) / r.width,
       y: 1 - (e.clientY - r.top) / r.height,
@@ -117,6 +132,7 @@ export function LayoutViewDom(props: { theme?: LayoutConfig; slots?: RenderSlots
   useEffect(() => {
     const mv = (e: PointerEvent) => {
       const m = ptToMath(e);
+      if (!m) return;
       const st = useLayout.getState();
       if (st.mode === "corner") st.cornerMove(m.x, m.y);
       else if (st.mode === "resizing") st.resizeMove(m.x, m.y);
@@ -136,24 +152,39 @@ export function LayoutViewDom(props: { theme?: LayoutConfig; slots?: RenderSlots
         if (st.mode !== "idle") st.cancel();
         else if (st.maximizedId != null) st.exitMaximize();
       }
-      else if (e.key === "Tab") { e.preventDefault(); useLayout.getState().toggleSplitDir(); }
+      else if (e.key === "Tab") {
+        // 仅角标手势中劫持 Tab(切换分割方向)；idle 等其余模式交还宿主页面，
+        // 不再全局破坏浏览器键盘导航
+        const st = useLayout.getState();
+        if (st.mode === "corner") { e.preventDefault(); st.toggleSplitDir(); }
+      }
       else if (e.key === "Control") useLayout.getState().setCtrl(true);
     };
     const ku = (e: KeyboardEvent) => { if (e.key === "Control") useLayout.getState().setCtrl(false); };
     const ctx = (e: MouseEvent) => {
       if (useLayout.getState().mode !== "idle") { e.preventDefault(); useLayout.getState().cancel(); }
     };
+    // 手势中断兜底：指针移出浏览器窗口(窗口失焦)或触屏被系统打断(pointercancel)
+    // 时收不到成对的 pointerup，手势会永久卡死——一律安全取消
+    const abort = () => {
+      const st = useLayout.getState();
+      if (st.mode !== "idle") st.cancel();
+    };
     window.addEventListener("pointermove", mv);
     window.addEventListener("mouseup", up);
     window.addEventListener("keydown", kd);
     window.addEventListener("keyup", ku);
     window.addEventListener("contextmenu", ctx);
+    window.addEventListener("blur", abort);
+    window.addEventListener("pointercancel", abort);
     return () => {
       window.removeEventListener("pointermove", mv);
       window.removeEventListener("mouseup", up);
       window.removeEventListener("keydown", kd);
       window.removeEventListener("keyup", ku);
       window.removeEventListener("contextmenu", ctx);
+      window.removeEventListener("blur", abort);
+      window.removeEventListener("pointercancel", abort);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -229,7 +260,14 @@ export function LayoutViewDom(props: { theme?: LayoutConfig; slots?: RenderSlots
                 </div>
               )}
               <div className="tl-ahead"
-                   onMouseDown={(e) => { if (e.button === 0 && !isMax) { e.preventDefault(); beginDock(a.id, ptToMath(e)); } }}
+                   onMouseDown={(e) => {
+                     if (e.button === 0 && !isMax) {
+                       const m = ptToMath(e);
+                       if (!m) return;
+                       e.preventDefault();
+                       beginDock(a.id, m);
+                     }
+                   }}
                    onDoubleClick={() => toggleMaximize(a.id)}>
                 {slots?.renderHeader
                   ? slots.renderHeader({ areaId: a.id, contentType: a.contentType, title: getContentTitle(a.contentType) })
@@ -252,7 +290,12 @@ export function LayoutViewDom(props: { theme?: LayoutConfig; slots?: RenderSlots
                  onMouseEnter={() => setHoverEdgeId(e.id)}
                  onMouseLeave={() => setHoverEdgeId(null)}
                  onMouseDown={(ev) => {
-                   if (ev.button === 0) { ev.preventDefault(); beginResize(e, ptToMath(ev)); }
+                   if (ev.button === 0) {
+                     const m = ptToMath(ev);
+                     if (!m) return;
+                     ev.preventDefault();
+                     beginResize(e, m);
+                   }
                  }}>
                 {slots?.renderEdge ? slots.renderEdge({ edgeId: e.id, vertical: vert, hovered: hoverEdgeId === e.id }) : null}
               </div>
@@ -267,7 +310,13 @@ export function LayoutViewDom(props: { theme?: LayoutConfig; slots?: RenderSlots
           return (
             <button type="button" key={i} className={`tl-corner${hasCustom ? " tl-custom" : ""}`}
                     style={{ left: `calc(${pct(c.x)} - 7px)`, top: `calc(${pct(1 - c.y)} - 7px)` }}
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); beginCorner(c.ids[0], ptToMath(e), e.ctrlKey); }}
+                    onMouseDown={(e) => {
+                      const m = ptToMath(e);
+                      if (!m) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      beginCorner(c.ids[0], m, e.ctrlKey);
+                    }}
                     onMouseEnter={() => { setHotIds(c.ids); setHoverCorner(ck); }}
                     onMouseLeave={() => { setHotIds([]); setHoverCorner(null); }}>
               {renderCorner

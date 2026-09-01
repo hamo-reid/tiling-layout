@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { LayoutProvider } from "../src/LayoutProvider";
 
@@ -35,9 +35,17 @@ describe("LayoutProvider 全局配置", () => {
     render(<LayoutProvider config={{ colorMode: "dark" }}><div /></LayoutProvider>);
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
-  it("colorMode system 清空 data-theme", () => {
+  it("colorMode system 移除 data-theme(交由 tokens.css 的 prefers-color-scheme 跟随系统)", () => {
     document.documentElement.dataset.theme = "light";
     render(<LayoutProvider config={{ colorMode: "system" }}><div /></LayoutProvider>);
-    expect(document.documentElement.dataset.theme).toBe("");
+    // 写空值属性会让 :root:not([data-theme]) 永不匹配 → 系统跟随失效，必须移除
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+  });
+  it("卸载时还原进入前的 data-theme(全局副作用可逆)", () => {
+    document.documentElement.dataset.theme = "light";
+    const { unmount } = render(<LayoutProvider config={{ colorMode: "dark" }}><div /></LayoutProvider>);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    act(() => { unmount(); });
+    expect(document.documentElement.dataset.theme).toBe("light"); // 还原而非泄漏
   });
 });

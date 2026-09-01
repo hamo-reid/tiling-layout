@@ -1,11 +1,22 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { LayoutViewDom } from "../src/LayoutViewDom";
 import { useLayout } from "../src/layoutStore";
 import { buildInitialScreen } from "../src/screen";
 import * as G from "../src/geometry";
+
+/** jsdom 无布局引擎(getBoundingClientRect 全 0)，mock 出真实舞台尺寸：
+ *  既让 ptToMath 坐标桥获得真实换算断言，也便于个别用例覆写回 0 尺寸验证防御 */
+const stageRect = {
+  x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 650,
+  width: 1000, height: 650,
+  toJSON: () => ({}),
+} as DOMRect;
+beforeAll(() => {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(stageRect);
+});
 
 function resetLayout() {
   useLayout.setState({
@@ -19,9 +30,16 @@ function resetLayout() {
   });
 }
 beforeEach(() => {
+  vi.mocked(Element.prototype.getBoundingClientRect).mockReturnValue(stageRect); // 个别用例的覆写还原
   resetLayout();
   cleanup();
 });
+
+/** 派发 window 级 pointermove(原生 MouseEvent)：jsdom 无 PointerEvent，
+ *  fireEvent.pointerMove(window) 不会触达 window 监听器 */
+const firePointerMove = (clientX: number, clientY: number) => {
+  window.dispatchEvent(new MouseEvent("pointermove", { clientX, clientY, bubbles: true }));
+};
 
 describe("LayoutViewDom 渲染结构", () => {
   it("渲染全部区域、内部分界线与角标", () => {
@@ -115,13 +133,40 @@ describe("LayoutViewDom 全局事件桥", () => {
     expect(ev.defaultPrevented).toBe(true);
     expect(useLayout.getState().mode).toBe("idle");
   });
-  it("pointermove 在 corner 模式驱动 cornerMove", () => {
+  it("pointermove 在 corner 模式驱动 cornerMove(坐标桥真实换算)", () => {
+    const { container } = render(<LayoutViewDom />);
+    fireEvent.mouseDown(container.querySelector(".tl-corner")!, { button: 0, clientX: 50, clientY: 100 });
+    expect(useLayout.getState().mode).toBe("corner");
+    firePointerMove(100, 100);
+    // 舞台 1000×650：x=0.1, y=1-100/650≈0.846 —— 锁定源区并记录指针位置
+    expect(useLayout.getState().srcId).not.toBeNull();
+    expect(useLayout.getState().lastPt).toEqual({ x: 0.1, y: 1 - 100 / 650 });
+  });
+  it("容器 0 尺寸时 pointermove 被坐标桥拒绝(不产生 NaN 几何)", () => {
+    // 还原为 jsdom 默认 0 尺寸：display:none 祖先等场景的真实映射
+    vi.mocked(Element.prototype.getBoundingClientRect).mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}),
+    } as DOMRect);
+    const rectsBefore = useLayout.getState().screen.areas.map((a) => ({ ...a.rect }));
     const { container } = render(<LayoutViewDom />);
     fireEvent.mouseDown(container.querySelector(".tl-corner")!, { button: 0 });
-    expect(useLayout.getState().mode).toBe("corner");
-    fireEvent.pointerMove(window, { clientX: 100, clientY: 100 });
-    // jsdom 下 getBoundingClientRect 为 0，坐标落入 NaN 分支但模式保持 corner
-    expect(useLayout.getState().mode).toBe("corner");
+    // mousedown 因坐标无效不进入手势
+    expect(useLayout.getState().mode).toBe("idle");
+    firePointerMove(100, 100);
+    // 几何逐字段保持有限值且未被改写(NaN 一旦入库会被快照链路放大成数据丢失)
+    const fin = useLayout.getState().screen.areas;
+    expect(fin).toHaveLength(rectsBefore.length);
+    for (let i = 0; i < fin.length; i++) {
+      expect(fin[i].rect).toEqual(rectsBefore[i]);
+      expect(Number.isFinite(fin[i].rect.xmax)).toBe(true);
+    }
+  });
+  it("窗口失焦(blur)取消进行中的手势(指针移出窗口后不复位→卡死的兜底)", () => {
+    const { container } = render(<LayoutViewDom />);
+    fireEvent.mouseDown(container.querySelector(".tl-asplit")!, { button: 0 });
+    expect(useLayout.getState().mode).toBe("resizing");
+    fireEvent(window, new Event("blur"));
+    expect(useLayout.getState().mode).toBe("idle");
   });
 });
 

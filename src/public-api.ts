@@ -38,23 +38,31 @@ export { layoutBus } from "./layoutBus";
 export type { LayoutEvent, Listener } from "./layoutBus";
 
 // 状态机 / 门面
+// ⚠ 引用语义契约：screen 几何采用「原地 mutate + 顶层浅拷贝」触发重渲
+// (见 layoutStore 头注)。订阅请以 useLayout(s => s.screen) 等**顶层对象**为
+// selector——按 s.screen.areas 或单个 Area 对象订阅在几何变更后不会重渲
+// (数组/对象引用不变，zustand 按 Object.is 判等)。细粒度实例状态请走
+// useAreaInstance / useLayoutData。
 export { useLayout } from "./layoutStore";
 export type { LayoutStore, DockTarget, DockState, ResizeCtx } from "./layoutStore";
 export { useLayoutData } from "./useLayoutData";
+export type { LayoutDataApi } from "./useLayoutData";
 
 // 多布局(工作区)
 export { useWorkspaces, serializeWorkspaces, deserializeWorkspaces, WORKSPACES_KEY } from "./workspaces";
 export type { LayoutInfo, WSStore, WorkspaceData } from "./workspaces";
 
 // 内容注册 / 渲染 / 主题
+// (clearContentRegistry 为 @internal：测试/热重载用，不进入公开面)
 export {
-  Content, registerContent, getContentTitle, clearContentRegistry,
+  Content, registerContent, getContentTitle,
 } from "./registry";
 export type { ContentProps, ContentDef, ContentLifecycleCtx } from "./registry";
 export { getAreaComponent, getComponentsByType } from "./areaInstances";
 export type { AreaComponentInfo } from "./areaInstances";
 export { LayoutViewDom } from "./LayoutViewDom";
-export type { RenderSlots } from "./LayoutViewDom";
+export type { RenderSlots, LayoutViewDomProps } from "./LayoutViewDom";
 export { LayoutProvider } from "./LayoutProvider";
+export type { LayoutProviderProps } from "./LayoutProvider";
 export { configToCssVars, SPACING_DEFAULTS, SIZING_DEFAULTS } from "./theme";
 export type { LayoutConfig } from "./theme";
