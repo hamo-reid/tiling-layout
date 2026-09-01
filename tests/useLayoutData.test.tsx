@@ -70,11 +70,12 @@ describe("useLayoutData 门面", () => {
     act(() => { result.current.redo(); });
     expect(useLayout.getState().screen.areas).toHaveLength(4);
   });
-  it("onChange 订阅实质数据变化", () => {
+  it("onChange 订阅实质数据变化(微任务折叠后异步投递)", async () => {
     const { result } = renderHook(() => useLayoutData());
     let count = 0;
     act(() => { result.current.onChange(() => { count++; }); });
     act(() => { result.current.moveMesh(1); });
+    await act(async () => { await new Promise<void>((r) => queueMicrotask(() => r())); });
     expect(count).toBeGreaterThan(0);
   });
 });

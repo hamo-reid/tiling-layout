@@ -28,9 +28,23 @@ export interface WSStore {
 
 let seq = 2; // 种子布局已占用 layout-1，新建从 layout-2 起
 
-/** 把当前活跃(总览)状态保存为容器数据 */
+/** 由布局列表重导出 id 序号(反序列化后调用)：seq 是模块级内存态，页面刷新后
+ *  必然回到初值——若不与恢复出的 layout-N 对齐，新建布局会复用已占用的 id，
+ *  data 同键覆盖会静默销毁被恢复的布局 */
+function syncSeqFromList(list: LayoutInfo[]): void {
+  let max = 1;
+  for (const it of list) {
+    const m = /^layout-(\d+)$/.exec(it.id);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  seq = max + 1;
+}
+
+/** 把当前活跃(总览)状态保存为容器数据(快照 meta 带上布局名) */
 function saveInto(): WorkspaceData {
-  const snap = collectSnapshot(useLayout.getState().screen);
+  const ws = useWorkspaces.getState();
+  const name = ws.list.find((l) => l.id === ws.activeId)?.name;
+  const snap = collectSnapshot(useLayout.getState().screen, name);
   const { past, future } = useLayout.getState();
   return { snapshot: snap, history: { past: [...past], future: [...future] } };
 }
@@ -38,7 +52,7 @@ function saveInto(): WorkspaceData {
 export const useWorkspaces = create<WSStore>((set, get) => {
   // 种子布局：从当前屏幕初始化
   const seedId = "layout-1";
-  const seedSnapshot = collectSnapshot(useLayout.getState().screen);
+  const seedSnapshot = collectSnapshot(useLayout.getState().screen, "General");
   const seed: WorkspaceData = { snapshot: seedSnapshot, history: { past: [], future: [] } };
 
   return {
@@ -49,13 +63,21 @@ export const useWorkspaces = create<WSStore>((set, get) => {
     create: (name) => {
       // 以当前布局为模板新建：把当前 store 存档给"离开的布局"，并作为新布局的副本(undo 历史清空)
       const st = get();
-      const id = `layout-${seq++}`;
-      const snap = collectSnapshot(useLayout.getState().screen);
+      let id = `layout-${seq++}`;
+      // 兜底防撞：即使 seq 与现存 id 脱节(如绕过 deserialize 的恢复路径)也不覆盖已有布局
+      while (st.data[id] || st.list.some((l) => l.id === id)) id = `layout-${seq++}`;
+      const curName = st.list.find((l) => l.id === st.activeId)?.name;
+      const snap = collectSnapshot(useLayout.getState().screen, curName);
       const cur = useLayout.getState();
       const left: WorkspaceData = { snapshot: snap, history: { past: [...cur.past], future: [...cur.future] } };
+      const newLayoutName = name ?? `Layout ${st.list.length + 1}`;
       set({
-        list: [...st.list, { id, name: name ?? `Layout ${st.list.length + 1}` }],
-        data: { ...st.data, [st.activeId]: left, [id]: { snapshot: snap, history: { past: [], future: [] } } },
+        list: [...st.list, { id, name: newLayoutName }],
+        data: {
+          ...st.data,
+          [st.activeId]: left,
+          [id]: { snapshot: { ...snap, meta: { ...snap.meta, name: newLayoutName } }, history: { past: [], future: [] } },
+        },
         activeId: id,
       });
       // 新建后历史从空白开始(避免串到其它布局)
@@ -93,12 +115,14 @@ export const useWorkspaces = create<WSStore>((set, get) => {
   };
 });
 
-/** 便捷：把所有布局快照导出为 JSON(多布局一起保存/交换)
+/** 便捷：把所有布局快照导出为 JSON(多布局一起保存/交换)。
+ *  与 serializeWorkspaces 对齐：先把活跃布局的实时状态同步进容器，避免导出落后数据。
  * @category 工作区
  */
 export function computeAllSnapshots() {
   const st = useWorkspaces.getState();
-  return Object.fromEntries(Object.entries(st.data).map(([k, v]) => [k, JSON.stringify(v.snapshot)]));
+  const data = { ...st.data, [st.activeId]: saveInto() };
+  return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, JSON.stringify(v.snapshot)]));
 }
 
 /** localStorage 键名：useLayoutData 自动保存工作区集合的目标
@@ -116,9 +140,11 @@ export function serializeWorkspaces(): string {
 }
 
 /** 解析并载入整个工作区集合：恢复 list/data/activeId，并把当前活跃布局 restore 进 store(几何+实例+共享+历史)。
- *  输入来自 JSON 反序列化，逐字段校验/归一化：history 缺失补空栈，快照经 migrateSnapshot 校验。
+ *  校验分两级：list 结构非法(整体承重)直接抛错；单个布局容器损坏只剔除该布局
+ *  (打警告)并继续——否则 autosave 一次坏写会让整组布局数据不可恢复。
+ *  载入同时把 id 序号与恢复的 layout-N 对齐(页面刷新后模块级 seq 会重置)。
  *  @param raw serializeWorkspaces 产出的 JSON 字符串
- *  @throws 数据缺失/非法时抛错(不改动现有工作区状态) */
+ *  @throws list 结构缺失/非法或无任何有效布局时抛错(不改动现有工作区状态) */
 export function deserializeWorkspaces(raw: string): void {
   const parsed: unknown = JSON.parse(raw);
   if (typeof parsed !== "object" || parsed === null) throw new Error("无效的工作区数据");
@@ -133,21 +159,33 @@ export function deserializeWorkspaces(raw: string): void {
     if (typeof it?.id !== "string" || typeof it?.name !== "string") throw new Error("无效的工作区数据");
   }
   if (typeof p.data !== "object" || p.data === null) throw new Error("无效的工作区数据");
-  // 每布局快照做结构校验+归一；history 缺失/非法时归一为空栈
-  for (const k of Object.keys(p.data)) {
-    const d = p.data[k];
-    if (typeof d !== "object" || d === null) throw new Error("无效的工作区数据");
-    d.snapshot = migrateSnapshot(d.snapshot);
-    const past = Array.isArray(d.history?.past) ? d.history.past.filter((x): x is string => typeof x === "string") : [];
-    const future = Array.isArray(d.history?.future) ? d.history.future.filter((x): x is string => typeof x === "string") : [];
-    d.history = { past, future };
+
+  // 每布局独立校验+归一：快照经 migrateSnapshot，history 缺失/非法归一为空栈
+  const data: Record<string, WorkspaceData> = {};
+  for (const [k, d] of Object.entries(p.data)) {
+    try {
+      if (typeof d !== "object" || d === null) throw new Error("容器非法");
+      const wd = d as WorkspaceData;
+      const snapshot = migrateSnapshot(wd.snapshot);
+      const past = Array.isArray(wd.history?.past) ? wd.history.past.filter((x): x is string => typeof x === "string") : [];
+      const future = Array.isArray(wd.history?.future) ? wd.history.future.filter((x): x is string => typeof x === "string") : [];
+      data[k] = { snapshot, history: { past, future } };
+    } catch (err) {
+      console.warn(`[tiling-layout] 工作区「${k}」数据损坏，已跳过:`, err);
+    }
   }
-  if (typeof p.activeId !== "string" || !p.data[p.activeId]) {
-    p.activeId = p.list[0].id;
-    if (!p.data[p.activeId]) throw new Error("无效的工作区数据");
-  }
-  useWorkspaces.setState({ list: p.list, data: p.data, activeId: p.activeId });
-  const target = p.data[p.activeId];
-  useLayout.getState().restore(target.snapshot);                    // 几何+实例+共享
+
+  // list/data 一致性：以 list 为准——剔除幽灵条目(list 有 id 无 data)与孤儿容器(有 data 无 list)
+  const list = p.list.filter((l) => data[l.id] !== undefined);
+  if (!list.length) throw new Error("无有效的工作区数据");
+  const kept = Object.fromEntries(list.map((l) => [l.id, data[l.id]]));
+
+  let activeId = p.activeId;
+  if (typeof activeId !== "string" || !kept[activeId]) activeId = list[0].id;
+
+  useWorkspaces.setState({ list, data: kept, activeId });
+  syncSeqFromList(list);                                              // 新建布局不再复用已恢复的 id
+  const target = kept[activeId];
+  useLayout.getState().restore(target.snapshot);                      // 几何+实例+共享
   useLayout.setState({ past: target.history.past, future: target.history.future }); // undo 历史
 }

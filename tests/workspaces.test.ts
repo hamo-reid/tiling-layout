@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { computeAllSnapshots, deserializeWorkspaces, serializeWorkspaces, useWorkspaces } from "../src/workspaces";
 import { useLayout } from "../src/layoutStore";
 import { buildInitialScreen } from "../src/screen";
@@ -81,6 +81,75 @@ describe("deserializeWorkspaces 健壮性", () => {
     expect(useLayout.getState().past).toEqual([]);
     expect(useLayout.getState().future).toEqual([]);
     expect(() => useLayout.getState().undo()).not.toThrow();
+  });
+
+  it("反序列化后新建布局不复用已恢复的 id(seq 与 layout-N 对齐)", () => {
+    // 复现审计缺陷：建 layout-2 → 落盘 → 「刷新页面」(反序列化恢复) → 点「＋」
+    useWorkspaces.getState().create("L2"); // layout-2
+    const json = serializeWorkspaces();
+    const restoredData = JSON.parse(json).data;
+    deserializeWorkspaces(json);           // 模拟刷新恢复：模块级 seq 回到 2
+    const id = useWorkspaces.getState().create("L3");
+    expect(id).toBe("layout-3");           // 若 seq 未同步会生成 layout-2
+    // 被恢复的 layout-2 数据完好未被覆盖
+    expect(useWorkspaces.getState().data["layout-2"]).toEqual(restoredData["layout-2"]);
+    expect(useWorkspaces.getState().list.filter((l) => l.id === "layout-2")).toHaveLength(1);
+  });
+  it("幽灵布局(list 有 id 无 data)被剔除", () => {
+    const st = useWorkspaces.getState();
+    const first = st.list[0].id;
+    deserializeWorkspaces(JSON.stringify({
+      v: 1,
+      list: [{ id: first, name: "General" }, { id: "ghost", name: "幽灵" }],
+      data: { [first]: st.data[first] },
+      activeId: first,
+    }));
+    const fin = useWorkspaces.getState();
+    expect(fin.list.map((l) => l.id)).toEqual([first]); // 幽灵条目不在 list
+    expect(fin.data["ghost"]).toBeUndefined();
+  });
+  it("单个布局快照损坏只剔除该布局，其余照常恢复(不连坐整组)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const st = useWorkspaces.getState();
+    const first = st.list[0].id;
+    const good = st.data[first];
+    deserializeWorkspaces(JSON.stringify({
+      v: 1,
+      list: [{ id: first, name: "General" }, { id: "bad", name: "损坏" }],
+      data: {
+        [first]: good,
+        bad: { snapshot: { v: 1, areas: [{ id: 1, contentType: "x", rect: [0.5, 0.5, 2, 2] }] }, history: { past: [], future: [] } }, // 越界几何
+      },
+      activeId: first,
+    }));
+    const fin = useWorkspaces.getState();
+    expect(fin.list.map((l) => l.id)).toEqual([first]); // 损坏布局被剔除
+    expect(fin.data[first]).toEqual(good);              // 其余布局完好
+    warnSpy.mockRestore();
+  });
+  it("孤儿容器(有 data 无 list)被剔除", () => {
+    const st = useWorkspaces.getState();
+    const first = st.list[0].id;
+    deserializeWorkspaces(JSON.stringify({
+      v: 1,
+      list: [{ id: first, name: "General" }],
+      data: { [first]: st.data[first], orphan: { snapshot: collectSnapshot(buildInitialScreen()), history: { past: [], future: [] } } },
+      activeId: first,
+    }));
+    expect(Object.keys(useWorkspaces.getState().data)).toEqual([first]);
+  });
+});
+
+describe("computeAllSnapshots 活跃布局同步", () => {
+  it("导出前先把活跃布局实时状态同步进容器(与 serializeWorkspaces 对齐)", () => {
+    // 在活跃布局上做一次分割(4 区)，不经 switchTo 落盘
+    const vp = useLayout.getState().screen.areas[0].id;
+    useLayout.getState().beginCorner(vp, { x: 0.3, y: 0.5 }, false);
+    useLayout.getState().cornerMove(0.2, 0.5);
+    useLayout.getState().cornerUp();
+    const all = computeAllSnapshots();
+    const activeSnap = JSON.parse(all[useWorkspaces.getState().activeId]) as { areas: unknown[] };
+    expect(activeSnap.areas).toHaveLength(4); // 读到的是实时几何而非容器里的旧 3 区快照
   });
 });
 
