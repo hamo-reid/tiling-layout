@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LayoutViewDom } from "../src/LayoutViewDom";
+import type { ContentProps, InitialLayout } from "../src/public-api";
 import { useLayout } from "../src/layoutStore";
 import { serializeLayout } from "../src/layoutData";
 import { useLayoutData } from "../src/useLayoutData";
@@ -13,6 +14,28 @@ const DEFAULT_HINT =
 type Theme = "" | "light" | "dark"; // "" = 跟随系统
 const THEME_ICON: Record<Theme, string> = { "": "🌓", light: "☀️", dark: "🌙" };
 const SAVE_KEY = "tiling-layout-v1";
+
+/** 演示 v0.3 声明式初始布局:上下两栏 + 右下内联内容(自动注册,type 即唯一身份)。
+ *  与默认三区明显不同,打开即可看到 initialLayout 生效。 */
+const DEMO_INITIAL_LAYOUT: InitialLayout = {
+  areas: [
+    { rect: [0, 0.5, 1, 1], content: "editor" },                       // 上 50%:编辑器
+    { rect: [0, 0, 0.5, 0.5], content: "outline" },                    // 左下:目录
+    { rect: [0.5, 0, 1, 0.5], content: {                               // 右下:内联监视器
+        type: "monitor", title: "监视器", defaults: { zoom: 1 },
+        Comp: ({ state, setState }: ContentProps<{ zoom?: number }>) => (
+          <div className="dc-panel">
+            <div style={{ fontSize: 14, marginBottom: 8 }}>zoom = {state.zoom ?? 1}</div>
+            <button className="dc-btn" type="button"
+                    onClick={(e) => { e.stopPropagation(); setState({ zoom: (state.zoom ?? 1) + 1 }); }}>
+              +1
+            </button>
+            <div className="dc-foot">内联内容 · 状态随区域实例保存</div>
+          </div>
+        ),
+    } },
+  ],
+};
 
 /** Demo 外壳：顶栏(状态提示 + 数据操作 + 主题) + DOM 渲染视图。仅演示用，不属于库。 */
 export function App() {
@@ -96,6 +119,8 @@ export function App() {
       </header>
       <main id="canvas-wrap">
         <LayoutViewDom
+          positioning="flow"
+          initialLayout={DEMO_INITIAL_LAYOUT}
           theme={{ spacing: { regionGap: 5 } }}
           slots={{
             renderHeader: (ctx) => <>{ctx.title}<small style={{ opacity: .7, marginLeft: 6 }}>#{ctx.areaId}</small></>,

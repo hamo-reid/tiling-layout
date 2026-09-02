@@ -34,6 +34,10 @@
 
 /* ---------- layout ↯ 外壳(仅本 demo) ---------- */
 @layer layout {
+  /* 演示 flow 容器策略:宿主用普通文档流布局(非 absolute),
+     LayoutViewDom positioning="flow" 铺满 #canvas-wrap 的内容盒,
+     这里的 padding 会真实内缩舞台(旧 absolute 语义下 padding 无效) */
+  #root { display: flex; flex-direction: column; overflow: hidden; }
   #topbar {
     height: var(--tl-topbar-h);
     padding-block: 0 var(--tl-sp-2);
@@ -69,9 +73,8 @@
   .theme-toggle:hover { background: var(--tl-panel-hover); color: var(--tl-text); }
 
   #canvas-wrap {
-    position: absolute;
-    inset-block: var(--tl-topbar-h) 0;   /* 顶=顶栏高，底=0：高度撑满视口下方 */
-    inset-inline: 0;
-    padding: var(--tl-sp-3);
+    flex: 1;                      /* 普通文档流占满顶栏下方剩余高度 */
+    min-height: 0;
+    padding: var(--tl-sp-3);      /* flow 模式下真实内缩舞台(内容盒语义) */
   }
 }
