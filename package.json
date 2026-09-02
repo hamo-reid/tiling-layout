@@ -1,6 +1,6 @@
 {
   "name": "@drahamo/tiling-layout",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "网格分割布局的 React 库：分割/合并/停靠/调大小 + 纯数据管理层",
   "license": "MIT",
   "author": "Hamo <190395489@qq.com>",
