@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { collectSnapshot, migrateSnapshot } from "./layoutData";
 import type { LayoutSnapshot } from "./layoutData";
 import { useLayout } from "./layoutStore";
+import { buildInitialScreen } from "./screen";
 
 /**
  * workspaces — 多布局(工作区)管理。
@@ -202,4 +203,38 @@ export function deserializeWorkspaces(raw: string): void {
   const target = kept[activeId];
   useLayout.getState().restore(target.snapshot);                      // 几何+实例+共享
   useLayout.setState({ past: target.history.past, future: target.history.future }); // undo 历史
+}
+
+/** 快照是否等于「原始默认」状态：areas 等于 buildInitialScreen 三区(按 id 对齐比
+ *  几何+类型，排除 meta.savedAt/name)，实例状态为空，共享数据为 {x:0,rot:0}。
+ *  直接比 buildInitialScreen 而非 collectSnapshot——后者会读当前全局 store，
+ *  用户改过内容后会把默认判定带偏。 */
+function isDefaultSnapshot(snap: LayoutSnapshot): boolean {
+  const def = buildInitialScreen();
+  if (snap.areas.length !== def.areas.length) return false;
+  for (const a of def.areas) {
+    const b = snap.areas.find((x) => x.id === a.id);
+    if (!b || b.contentType !== a.contentType) return false;
+    const [xmin, ymin, xmax, ymax] = b.rect; // 快照 rect 为 [xmin,ymin,xmax,ymax] 数组
+    if (xmin !== a.rect.xmin || ymin !== a.rect.ymin || xmax !== a.rect.xmax || ymax !== a.rect.ymax) return false;
+  }
+  if (Object.keys(snap.areaStates ?? {}).length > 0) return false;
+  if ((snap.shared?.x ?? 0) !== 0 || (snap.shared?.rot ?? 0) !== 0) return false;
+  return true;
+}
+
+/** @internal 种子布局(layout-1)仍是「原始默认」时，用给定快照刷新其容器数据。
+ *  initialLayout 引导后调用——restore 只改 layoutStore 不刷新 workspaces 容器，
+ *  否则切换布局再切回会「变回默认」(种子快照落后于实时 store)。
+ *  仅当活跃布局就是种子且种子未被动过时同步，其余情况 no-op。
+ *  @param snap 已应用的当前活跃快照 */
+export function refreshSeedIfPristine(snap: LayoutSnapshot): void {
+  const st = useWorkspaces.getState();
+  const seedId = "layout-1";
+  const seed = st.data[seedId];
+  if (!seed || st.activeId !== seedId) return;
+  if (!isDefaultSnapshot(seed.snapshot)) return;
+  useWorkspaces.setState({
+    data: { ...st.data, [seedId]: { snapshot: snap, history: seed.history } },
+  });
 }

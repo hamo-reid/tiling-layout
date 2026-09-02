@@ -34,17 +34,23 @@ export const SIZING_DEFAULTS = { headerH: 26, corner: 14, radius: 6 };
  * CSS 自定义属性不在 CSSProperties 已知键集合内，此处做唯一一次断言，
  * 消费方无需再各自 as。
  * @param c 部分覆盖的配置；缺省项回退默认值
+ * @param opts.partial 只输出显式配置的键(不补默认)。LayoutViewDom 实例级用它，
+ *        让 LayoutProvider 的全局变量穿透实例内联样式；非 partial 保持原语义(零回归)
  * @returns `--tl-*` CSS 变量样式的 React style 对象
  * @category 渲染与主题
  */
-export function configToCssVars(c?: LayoutConfig): CSSProperties {
+export function configToCssVars(c?: LayoutConfig, opts?: { partial?: boolean }): CSSProperties {
   const s = { ...SPACING_DEFAULTS, ...c?.spacing };
   const z = { ...SIZING_DEFAULTS, ...c?.sizing };
-  return {
-    "--tl-region-gap": `${s.regionGap}px`,   // .tl-area-box 描边(区域间分隔)
-    "--tl-pad-region": `${s.padRegion}px`,   // 内容内边距/头部横向内边距
-    "--tl-header-h": `${z.headerH}px`,       // 区域头部高度
-    "--tl-corner": `${z.corner}px`,          // 角标尺寸
-    "--tl-radius": `${z.radius}px`,          // 区域圆角
-  } as CSSProperties;
+  const out: Record<string, string> = {};
+  // partial:只输出显式配置的键(实例级用),让 LayoutProvider 施加在包裹 div 上的
+  // 全局变量穿透实例内联样式;非 partial:输出全部键(含默认),保持原语义。
+  // 判定用 typeof === "number" 而非 !== undefined:运行时可能混入 null/NaN(JSON 反序列化等),
+  // 前者会让分支输出 `${null}px` 的非法 CSS,后者统一视为未配置。
+  if (!opts?.partial || typeof c?.spacing?.regionGap === "number") out["--tl-region-gap"] = `${s.regionGap}px`;
+  if (!opts?.partial || typeof c?.spacing?.padRegion === "number") out["--tl-pad-region"] = `${s.padRegion}px`;
+  if (!opts?.partial || typeof c?.sizing?.headerH === "number") out["--tl-header-h"] = `${z.headerH}px`;
+  if (!opts?.partial || typeof c?.sizing?.corner === "number") out["--tl-corner"] = `${z.corner}px`;
+  if (!opts?.partial || typeof c?.sizing?.radius === "number") out["--tl-radius"] = `${z.radius}px`;
+  return out as CSSProperties;
 }

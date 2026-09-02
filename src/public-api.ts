@@ -67,3 +67,7 @@ export { LayoutProvider } from "./LayoutProvider";
 export type { LayoutProviderProps } from "./LayoutProvider";
 export { configToCssVars, SPACING_DEFAULTS, SIZING_DEFAULTS } from "./theme";
 export type { LayoutConfig } from "./theme";
+
+// 声明式初始布局引导(替换默认布局 + 内联内容定义自动注册)
+export { installInitialLayout, isPristineScreen, isLayoutBootstrapped } from "./initialLayout";
+export type { InitialLayout, InitialSnapshot, InitialArea } from "./initialLayout";

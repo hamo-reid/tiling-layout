@@ -23,6 +23,8 @@ describe("public-api 公开面契约", () => {
       // 渲染 / 主题
       "Content", "registerContent", "unregisterContent", "getContentTitle", "LayoutViewDom", "LayoutProvider",
       "configToCssVars", "SPACING_DEFAULTS", "SIZING_DEFAULTS", "buildInitialScreen",
+      // 声明式初始布局引导(v0.3)
+      "installInitialLayout", "isPristineScreen",
     ] as (keyof typeof api)[]) {
       expect(api[name], `导出 ${name} 缺失`).toBeDefined();
     }

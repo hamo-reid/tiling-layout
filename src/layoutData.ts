@@ -168,7 +168,7 @@ export function applySnapshot(snap: LayoutSnapshot): G.Screen {
     area.id = a.id;
   }
 
-  useAreaState.setState({ map: { ...snap.areaStates } });
+  useAreaState.setState({ map: { ...(snap.areaStates ?? {}) } });
   useScene.setState({ mesh: { x: snap.shared?.x ?? 0, rot: snap.shared?.rot ?? 0 } }); // shared 缺字段时以默认值兜底
   return s;
 }

@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import * as G from "./geometry";
+import { installInitialLayout, isLayoutBootstrapped, isPristineScreen } from "./initialLayout";
+import type { InitialLayout } from "./initialLayout";
 import { useLayout } from "./layoutStore";
 import type { DockTarget } from "./layoutStore";
 import { Content, getContentTitle } from "./registry";
 import { configToCssVars } from "./theme";
 import type { LayoutConfig } from "./theme";
+import { useWorkspaces } from "./workspaces";
 
 /**
  * 渲染插槽：定制"可见内容"，交互宿主(头部拖拽停靠/角标命中/分界线拖拽)仍由 lib 保留。
@@ -75,6 +78,17 @@ export interface LayoutViewDomProps {
   theme?: LayoutConfig;
   /** 渲染插槽(定制头部/角标/分界线/区域盒/预览层；不传用默认外观) */
   slots?: RenderSlots;
+  /** 容器定位策略：
+   *   - "absolute"(默认)：铺满最近 positioned 祖先的 padding-box(需父元素有定位上下文)
+   *   - "flow"：正常文档流元素，宽高 100% 撑满父元素 content-box —— 父元素无需 position，
+   *     padding 自动内缩舞台、margin 天然在外侧。要求父级有确定高度(否则塌 0 高，
+   *     库会 console.warn 提示)。 */
+  positioning?: "absolute" | "flow";
+  /** 透传到 .tl-stage-wrap 的内联样式(如自定义 padding/margin/背景/混合定位) */
+  style?: CSSProperties;
+  /** 初始布局：组件挂载时若 store 仍为原始默认布局则应用(声明式，见 InitialLayout)。
+   *  仅「仍是默认」时生效，交互过或重挂载不会把用户已改的布局冲回初始值。 */
+  initialLayout?: InitialLayout;
 }
 
 /** 库的(唯一)渲染组件：把 layoutStore 的几何渲染为可交互 DOM。
@@ -83,7 +97,7 @@ export interface LayoutViewDomProps {
  * @category 渲染与主题
  */
 export function LayoutViewDom(props: LayoutViewDomProps = {}) {
-  const { theme, slots } = props;
+  const { theme, slots, positioning = "absolute", style, initialLayout } = props;
   const screen = useLayout((s) => s.screen);
   const mode = useLayout((s) => s.mode);
   const splitDir = useLayout((s) => s.splitDir);
@@ -102,6 +116,8 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
   const [hotIds, setHotIds] = useState<number[]>([]);
   const [hoverEdgeId, setHoverEdgeId] = useState<number | null>(null);
   const [hoverCorner, setHoverCorner] = useState<string | null>(null);
+  /** flow 0 高兜底告警只报一次 */
+  const warnedFlowRef = useRef(false);
 
   /** 推导分界线段(矩形平铺的派生数据；id 确定性分配，可直接用作 key 与交互标识) */
   const segs = useMemo(() => G.deriveEdges(screen), [screen]);
@@ -189,6 +205,32 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // flow 模式 0 高兜底告警：父级 auto/min-height 时 height:100% 退化为 auto、唯一子元素
+  // 又是 absolute → 舞台塌 0 高空白无任何提示。主动 warn 把静默失败变可诊断(参照 allotment FAQ)
+  useEffect(() => {
+    if (positioning !== "flow" || warnedFlowRef.current) return;
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (r && r.height <= 0) {
+      warnedFlowRef.current = true;
+      console.warn(
+        "[tiling-layout] flow 模式下舞台高度为 0（也可能容器被隐藏或尚未布局）：" +
+        "父容器缺少确定高度时舞台会塌陷，请给父元素显式 height 或 flex 链",
+      );
+    }
+  }, [positioning]);
+
+  // initialLayout 引导：页面级一次(模块级标记)，且仅在「活跃种子布局仍是最初状态」时应用。
+  // 交互过(几何/内容/场景变化)、活跃工作区非种子、或已被其它实例/程序化 install 引导过
+  // 都跳过——重挂载、迟到传入(prop 后到)不会冲掉用户数据。
+  // useLayoutEffect 在 paint 前应用，避免首帧闪默认三区。
+  useLayoutEffect(() => {
+    if (!initialLayout || isLayoutBootstrapped()) return;
+    if (useWorkspaces.getState().activeId !== "layout-1") return;
+    if (!isPristineScreen()) return;
+    installInitialLayout(initialLayout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLayout]);
+
   // 角标按唯一坐标去重并记录共享块(区域矩形四角)
   const corners = (() => {
     const map = new Map<string, { x: number; y: number; ids: number[] }>();
@@ -231,7 +273,8 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
   const pct = (n: number) => `${+(n * 100).toFixed(4)}%`;
 
   return (
-    <div className="tl-stage-wrap" ref={wrapRef} style={configToCssVars(theme)}>
+    <div className="tl-stage-wrap" ref={wrapRef} data-positioning={positioning}
+         style={{ ...configToCssVars(theme, { partial: true }), ...style }}>
       <div className="tl-stage">
         {/* 区域 */}
         {screen.areas.map((a) => {

@@ -22,16 +22,18 @@ const myTheme: LayoutConfig = {
 
 ## 作用域:全局还是单个实例
 
-`LayoutProvider` 把配置施加到子树里的所有布局;`LayoutViewDom` 的 `theme` 属性只管自己,优先级更高:
+`LayoutProvider` 把配置施加到子树里的所有布局;`LayoutViewDom` 的 `theme` 属性只管自己,优先级更高(显式配置的键覆盖全局值):
 
 ```tsx
 import { LayoutProvider, LayoutViewDom } from "@drahamo/tiling-layout";
 
 <LayoutProvider config={{ spacing: { regionGap: 4 }, colorMode: "dark" }}>
-  <LayoutViewDom /> {/* 继承全局 */}
-  <LayoutViewDom theme={{ sizing: { corner: 20 }, colorMode: "light" }} />
+  <LayoutViewDom /> {/* 继承全局 spacing */}
+  <LayoutViewDom theme={{ sizing: { corner: 20 } }} /> {/* 实例覆盖 corner,其余继承全局 */}
 </LayoutProvider>
 ```
+
+注意 `colorMode`(明暗切换)只由 `LayoutProvider` 处理,写在 `LayoutViewDom` 的 `theme` 上不生效。
 
 ## 深一层:CSS 变量
 
@@ -45,7 +47,7 @@ import { LayoutProvider, LayoutViewDom } from "@drahamo/tiling-layout";
 .tl-stage-wrap .tl-area-box { border-color: #3b82f6; }
 ```
 
-可用的变量:`--tl-region-gap`、`--tl-pad-region`、`--tl-header-h`、`--tl-corner`、`--tl-radius`,与上表的配置项一一对应。配色类令牌(面板、边框、强调色等)在 `tokens.css` 里,明暗切换跟着 `colorMode` 或 `data-theme` 走。所有类名和变量都带 `tl-` 前缀,不会和宿主项目冲突。
+可用的变量:`--tl-region-gap`、`--tl-pad-region`、`--tl-header-h`、`--tl-corner`、`--tl-radius`,与上表的配置项一一对应。实例 `theme` 只把**显式配置的键**内联到 `.tl-stage-wrap`,因此未配置的键直接写在 `.tl-stage-wrap` 或更外层即可生效;若同一键既由实例 `theme` 配置又被 CSS 写入,以 `theme` 为准(内联优先级最高)。配色类令牌(面板、边框、强调色等)在 `tokens.css` 里,明暗切换跟着 `colorMode` 或 `data-theme` 走。所有类名和变量都带 `tl-` 前缀,不会和宿主项目冲突。
 
 ## 最深一层:渲染插槽
 

@@ -33,6 +33,14 @@ export function App() {
 
 `LayoutViewDom` 铺满它的容器,所以容器自身要有确定的尺寸(这里用 `inset: 0` 占满视口)。
 
+> **想嵌进普通文档流(父元素不用 `position`、padding/margin 由父元素天然适配)?** 用 `positioning="flow"` —— 组件以正常流元素占满父元素内容盒:父元素的 `padding` 自动内缩舞台、`margin` 在舞台外侧、无需定位上下文;只需给父元素确定高度(flex 链或显式 `height`),否则舞台塌 0 高(控制台会 `console.warn` 提示):
+>
+> ```tsx
+> <div style={{ height: 480, padding: 16 }}>
+>   <LayoutViewDom positioning="flow" />
+> </div>
+> ```
+
 **验证**:打开页面,你应该看到三个区域。把鼠标移到左上区域,找到角上的 ⌖ 手柄,往右拖——区域被切成了两半。拖分界线可以调整大小,双击区域头部会全屏最大化,Esc 恢复。
 
 ## 让布局进代码
@@ -64,6 +72,52 @@ export function Workspace() {
 ```
 
 **验证**:拖几刀之后点"导出 JSON",控制台里打印的就是当前的布局快照——你刚才的每次拖拽都真实地改了这份数据。点"撤销"几次,布局逐步回退。
+
+## 自定义初始布局与内容(声明式)
+
+默认的三区布局(编辑器 / 目录 / 属性)在库加载时固化。换成你自己的布局,给 `LayoutViewDom` 传 `initialLayout` —— 声明式描述区域矩形,并可直接把内容组件内联进去(自动注册,免提前 `registerContent`):
+
+```tsx
+import { LayoutViewDom } from "@drahamo/tiling-layout";
+
+export function App() {
+  return (
+    <div style={{ height: 600 }}>
+      <LayoutViewDom
+        positioning="flow"
+        initialLayout={{
+          areas: [
+            // 区域内容:内联定义(自动注册,type 即该区域的内容类型)
+            {
+              rect: [0, 0, 0.6, 1],
+              content: {
+                type: "monitor", title: "监视器", defaults: { zoom: 1 },
+                Comp: ({ state, setState }) => (
+                  <div style={{ padding: 12 }}>
+                    zoom = {state.zoom ?? 1}{" "}
+                    <button onClick={() => setState({ zoom: (state.zoom ?? 1) + 1 })}>+1</button>
+                  </div>
+                ),
+              },
+            },
+            // 区域内容:引用已注册的类型名,或留空("general" 通用面板)
+            { rect: [0.6, 0, 1, 1], content: "editor" },
+          ],
+        }}
+      />
+    </div>
+  );
+}
+```
+
+要点:
+
+- 坐标一律是 `[0, 1]×[0, 1]` 归一化比例矩形;`id` 缺省自动分配。
+- `content` 接受已注册的类型名、内联定义(自动注册)、或留空(通用面板)。内联定义的 `type` 就是最终内容类型——实例状态、命令式查询都按它寻址,单一命名空间。
+- 仅在这份布局首次替换默认时生效;交互过后重新挂载不会把你的改动冲回初始布局。
+- 也接受完整快照对象(`LayoutSnapshot`)或几何 `Screen`(程序化 `createScreen/addArea/split` 构造)。
+- **与持久化恢复的先后**：若启动时先 `deserializeWorkspaces`(或任何 `restore`)恢复了存档,store 已非默认,`initialLayout` prop 会被跳过(不覆盖你的存档)——这种「先恢复后引导」的模式请改用程序化 `installInitialLayout(...)`。
+- **多实例**：`initialLayout` 是页面级引导,多个带不同初始布局的实例共存时仅首个生效。
 
 ## 下一步
 

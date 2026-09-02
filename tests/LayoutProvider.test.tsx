@@ -24,12 +24,18 @@ describe("LayoutProvider 全局配置", () => {
     expect(wrap.style.getPropertyValue("--tl-radius")).toBe("8px");
     expect(screen.getByText("内容")).toBeInTheDocument();
   });
-  it("无 config 时使用默认值(零回归)", () => {
+  it("无 config 时不内联变量(样式由 CSS 兜底,零回归)", () => {
     const { container } = render(<LayoutProvider><span>x</span></LayoutProvider>);
     const wrap = container.firstChild as HTMLElement;
-    expect(wrap.style.getPropertyValue("--tl-region-gap")).toBe("2px");
-    expect(wrap.style.getPropertyValue("--tl-header-h")).toBe("26px");
-    expect(wrap.style.getPropertyValue("--tl-corner")).toBe("14px");
+    expect(wrap.style.getPropertyValue("--tl-region-gap")).toBe("");
+    expect(wrap.style.getPropertyValue("--tl-header-h")).toBe("");
+  });
+  it("partial:只内联显式配置的键,未配置键穿透外层/兜底", () => {
+    const { container } = render(<LayoutProvider config={{ spacing: { regionGap: 4 } }}><span>x</span></LayoutProvider>);
+    const wrap = container.firstChild as HTMLElement;
+    expect(wrap.style.getPropertyValue("--tl-region-gap")).toBe("4px");
+    expect(wrap.style.getPropertyValue("--tl-header-h")).toBe(""); // 未配置 → 不内联
+    expect(wrap.style.getPropertyValue("--tl-corner")).toBe("");
   });
   it("colorMode 写入 documentElement[data-theme]", () => {
     render(<LayoutProvider config={{ colorMode: "dark" }}><div /></LayoutProvider>);

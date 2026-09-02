@@ -23,7 +23,10 @@ export interface LayoutProviderProps {
  * 写入空值属性会让系统跟随失效。组件卸载时还原进入前的属性值(副作用可逆)。
  */
 export function LayoutProvider({ config, children }: LayoutProviderProps) {
-  const varStyle = useMemo(() => configToCssVars(config), [config]);
+  // partial:只内联显式配置的键,未配置键不在包裹 div 上产生内联默认值——
+  // 宿主在外层写的同名 CSS 变量可穿透,消费元素经 var(--tl-x, 默认) 兜底(零视觉回归)。
+  // 全局施加 = 显式键作用于子树所有实例;实例 theme 显式键仍以实例内联优先。
+  const varStyle = useMemo(() => configToCssVars(config, { partial: true }), [config]);
   useEffect(() => {
     if (!config?.colorMode) return;
     const root = document.documentElement;
