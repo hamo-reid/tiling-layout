@@ -38,6 +38,28 @@ registerContent({
 
 `defaults` 声明的对象决定了 `ContentProps` 的类型参数:组件里读到的 `state` 和写用的 `setState` 都是这个形状,不需要类型断言。`registerContent` 要在渲染前执行(比如放在模块顶层)。
 
+## 在声明式布局里内联内容
+
+除了在模块顶层 `registerContent`,`initialLayout` 的 `content` 字段也可以直接写内联定义——库会帮你自动注册,`type` 就是最终的内容类型:
+
+```tsx
+<LayoutViewDom
+  initialLayout={{
+    areas: [
+      {
+        rect: [0, 0, 1, 1],
+        content: {
+          type: "myeditor", title: "编辑器", defaults: { text: "在这写…" },
+          Comp: MyEditor,
+        },
+      },
+    ],
+  }}
+/>
+```
+
+和 `registerContent` 是同一件事的两种写法,可以混用——`initialLayout` 里既引用已注册的类型名,也内联新定义。内联定义在布局校验**通过之后**才注册:无效布局(越界、重叠、id 重复)被拒绝时,注册表不会留下残留。`type` 是唯一身份,实例状态、命令式查询都按它寻址。更完整的声明式布局用法见[声明式初始布局](/docs/advanced/initial-layout)。
+
 ## 内容实例生命周期
 
 每个「区域 × 内容类型」组合都是一个内容实例,它有自己的生命周期。注册时的 `onMount` / `onUnmount` 回调让你在实例创建和销毁时介入(挂三方库实例、开监听器等),回调收到的 `ContentLifecycleCtx` 包含 `areaId`、`contentType` 和该区域内容容器的 DOM 节点 `el`:

@@ -123,6 +123,8 @@ export function App() {
 
 每个区域现在还是空的占位内容。接下来通常做的事,按需跳转:
 
+- 决定布局放哪、怎么撑满容器 → [让布局填满哪里](/docs/guides/container-sizing)
+- 用你自己的布局替换默认三区 → [声明式初始布局](/docs/advanced/initial-layout)
 - 在区域里放你自己的组件 → [第一个内容组件](/docs/guides/first-content-component)
 - 让多个视图共享一份数据,或各看各的 → [共享数据与独立状态](/docs/advanced/shared-scene)
 - 把用户的布局存进 localStorage 或文件 → [撤销、持久化与快照](/docs/advanced/undo-persist-migrate)

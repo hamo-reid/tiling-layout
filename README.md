@@ -8,7 +8,9 @@ Vite · React 18 · TypeScript · zustand · Vitest
 ## 功能
 - **平铺布局操作**：角标拖拽(同区=分割 / 拖到相邻区=合并 / Ctrl+交换)；拖分界线调整大小(连通线族整体平移、保持矩形)；区域内部拖动=停靠(5 位热区：中心/四边分裂)；**双击区域头部=最大化(全屏)/Esc 恢复**。
 - **单一渲染组件**：真实 DOM(`LayoutViewDom`，区域可承载任意 React 内容)。
-- **内容类型注册**：`registry` 声明每类型 per-area 状态默认值 + 渲染组件；`unregisterContent` 注销类型(存活实例清理 + 状态随类型清除)。
+- **容器策略**：`absolute` 铺定位祖先 / `flow` 铺父元素内容盒(免 positioned 祖先，padding/margin 天然适配，`style` 可透传)。
+- **内容类型注册**：`registry` 声明每类型 per-area 状态默认值 + 渲染组件；`unregisterContent` 注销类型(存活实例清理 + 状态随类型清除)；`initialLayout` 可内联定义自动注册。
+- **声明式初始布局**：`initialLayout` / `installInitialLayout` 替换默认布局(声明式 areas / 快照 / Screen 三种输入)，页面级一次、交互后不冲数据。
 - **命令式组件查询**：`getAreaComponent(areaId)` / `getComponentsByType(type)` 按 id/类型取当前存活区域的内容容器 DOM。
 - **明暗主题**：OKLCH tokens + `@layer` 现代 CSS。
 
@@ -49,6 +51,7 @@ src/
   layoutData.ts      # 统一快照 / 版本迁移
   layoutBus.ts       # 订阅回调(指纹去重)
   workspaces.ts      # 多布局(工作区)管理
+  initialLayout.ts   # 声明式初始布局(installInitialLayout / isPristineScreen)
   useLayoutData.ts   # 单一门面 hook
   registry.tsx       # 内容类型注册
   areaInstances.ts   # 命令式组件注册表(按 id/类型查存活组件)

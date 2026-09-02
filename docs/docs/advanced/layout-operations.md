@@ -35,6 +35,8 @@ const half = split(s, A, AXIS.V, 0.5); // 返回新区域,s.areas 现在有两�
 
 预设布局模板、自动化测试、批量重排,都走这条路。
 
+程序化构造好的屏幕要变成当前工作区的布局,有两个入口:作为 `initialLayout` / `installInitialLayout` 的输入替换默认布局(见[声明式初始布局](/docs/advanced/initial-layout)),或经 `restore` 落地到当前布局(见[撤销、持久化与快照](/docs/advanced/undo-persist-migrate))。
+
 要注意的是:如果操作的是当前工作区的布局,请通过 `useLayoutData()` 或 `useLayout` 的状态机去改,而不是直接 mutate screen 引用——撤销历史和订阅回调以状态机为准,绕过它做的修改不会留下历史记录。
 
 ## 最小尺寸与吸附
