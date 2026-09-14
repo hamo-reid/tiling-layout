@@ -60,7 +60,7 @@ function NumField({ label, hint, value, step, min, max, onChange }: {
 function SnapField({ label, hint, value, onChange }: {
   label: string;
   hint: string;
-  value: number[];
+  value: readonly number[];
   onChange: (v: number[]) => void;
 }) {
   const [text, setText] = useState(() => value.join(", "));

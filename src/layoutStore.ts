@@ -148,9 +148,6 @@ export interface LayoutStore {
 
 const name = (t: string | undefined) => getContentTitle(t ?? "general");
 
-/** 历史栈上限(条数) */
-const HISTORY_MAX = 60;
-
 /** 内容类型变化不可变落地：按 (areaId → contentType) 生成新 Area 对象，原对象引用不变，
  *  细粒度 selector(按 contentType/对象引用订阅)不会漏更新。split/join 等几何变异不受影响。 */
 function retypedAreas(s: G.Screen, changes: Map<number, string>): G.Area[] {
@@ -206,7 +203,7 @@ export const useLayout = create<LayoutStore>((set, get) => {
     future: [],
 
     commitHistory: () => {
-      const past = [...get().past, JSON.stringify(collectSnapshot(get().screen))].slice(-HISTORY_MAX);
+      const past = [...get().past, JSON.stringify(collectSnapshot(get().screen))].slice(-runtime().historyMax);
       set({ past, future: [] });
     },
     restore: (snap) => {
@@ -333,7 +330,7 @@ export const useLayout = create<LayoutStore>((set, get) => {
       let dir = st.splitDir;
       if (!dir) {
         const dx = x - st.cornerStart.x, dy = y - st.cornerStart.y;
-        if (Math.abs(dx) + Math.abs(dy) > 0.005) {
+        if (Math.abs(dx) + Math.abs(dy) > runtime().edgeArm) {
           dir = Math.abs(dx) > Math.abs(dy) ? G.AXIS.V : G.AXIS.H;
         }
       }
@@ -402,7 +399,7 @@ export const useLayout = create<LayoutStore>((set, get) => {
         hoverTId: null,
         splitDir: null,
         snapped: false,
-        past: mutated ? [...st.past, pre].slice(-HISTORY_MAX) : st.past,
+        past: mutated ? [...st.past, pre].slice(-runtime().historyMax) : st.past,
         future: mutated ? [] : st.future,
         screen: { ...s, areas: retypedAreas(s, retype) },
       });
@@ -569,7 +566,7 @@ export const useLayout = create<LayoutStore>((set, get) => {
         mode: "idle",
         status,
         dock: null,
-        past: mutated ? [...st.past, pre].slice(-HISTORY_MAX) : st.past,
+        past: mutated ? [...st.past, pre].slice(-runtime().historyMax) : st.past,
         future: mutated ? [] : st.future,
         screen: { ...s, areas: retypedAreas(s, retype) },
       });
@@ -650,7 +647,7 @@ export const useLayout = create<LayoutStore>((set, get) => {
         mode: "idle",
         resize: null,
         status: "就绪",
-        past: dragged ? [...st.past, r!.pre].slice(-HISTORY_MAX) : st.past,
+        past: dragged ? [...st.past, r!.pre].slice(-runtime().historyMax) : st.past,
         future: dragged ? [] : st.future,
         screen: { ...s },
       });

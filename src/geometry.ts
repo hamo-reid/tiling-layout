@@ -444,7 +444,8 @@ export function snapCoord(
   const along = (c: [number, number]) => (dir === AXIS.V ? c[0] : c[1]);
 
   const candidates: number[] = [];
-  for (let i = 0; i <= 12; i++) candidates.push(lo + span * (i / 12));
+  const div = runtime().snapDivisions;
+  for (let i = 0; i <= div; i++) candidates.push(lo + span * (i / div));
 
   const srcCross = new Set(corners(src.rect).map(cross));
   for (const a of s.areas) {

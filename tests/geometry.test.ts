@@ -253,4 +253,13 @@ describe("几何参数接入(configureRuntime)", () => {
     restore();
     expect(G.findEdgeAtPos(s, far, y)).not.toBeNull(); // 出厂 0.005
   });
+
+  it("snapCoord 吸附分格数可调", () => {
+    const { s, a } = oneRect(1, 1);
+    expect(G.snapCoord(s, a, 0.3, 0, G.AXIS.H, 1, 0)).toBeCloseTo(1 / 3, 9); // 12 等分最近点
+    const restore = configureRuntime({ snapDivisions: 4 });
+    expect(G.snapCoord(s, a, 0.3, 0, G.AXIS.H, 1, 0)).toBeCloseTo(0.25, 9); // 4 等分最近点
+    restore();
+    expect(G.snapCoord(s, a, 0.3, 0, G.AXIS.H, 1, 0)).toBeCloseTo(1 / 3, 9);
+  });
 });

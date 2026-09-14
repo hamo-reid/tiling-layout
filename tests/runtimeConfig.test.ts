@@ -15,19 +15,28 @@ describe("行为参数(runtimeConfig)", () => {
     expect(r.minAreaW).toBe(0.06);
     expect(r.minAreaH).toBe(0.06);
     expect(r.cornerArm).toBe(0.01);
+    expect(r.edgeArm).toBe(0.005);
     expect(r.hitTolerance).toBe(0.005);
+    expect(r.snapDivisions).toBe(12);
+    expect(r.historyMax).toBe(60);
     expect(RUNTIME_DEFAULTS.dockCenter).toBe(0.25);
+    expect(Object.isFrozen(RUNTIME_DEFAULTS.dockSnap)).toBe(true); // 深冻结
   });
 
   it("partial 覆盖 + 还原函数回退", () => {
-    restore = configureRuntime({ dockCenter: 0.4, minAreaW: 0.1 });
+    restore = configureRuntime({ dockCenter: 0.4, minAreaW: 0.1, snapDivisions: 6, historyMax: 10, edgeArm: 0.02 });
     expect(runtime().dockCenter).toBe(0.4);
     expect(runtime().minAreaW).toBe(0.1);
     expect(runtime().minAreaH).toBe(0.06); // 未覆盖保持
+    expect(runtime().snapDivisions).toBe(6);
+    expect(runtime().historyMax).toBe(10);
+    expect(runtime().edgeArm).toBe(0.02);
     restore();
     restore = null;
     expect(runtime().dockCenter).toBe(0.25);
     expect(runtime().minAreaW).toBe(0.06);
+    expect(runtime().snapDivisions).toBe(12);
+    expect(runtime().historyMax).toBe(60);
   });
 
   it("dockSnap 去重升序拷贝, 不改调用方数组", () => {
@@ -44,14 +53,20 @@ describe("行为参数(runtimeConfig)", () => {
       minAreaW: -1,
       minAreaH: 0.7, // ≥0.5 越界
       cornerArm: 0,
+      edgeArm: -1,
       hitTolerance: Number.POSITIVE_INFINITY,
+      snapDivisions: 1, // <2 非法
+      historyMax: 0, // <1 非法
     });
     expect(runtime().dockCenter).toBe(0.25);
     expect(runtime().dockSnap).toEqual([0.25, 0.33, 0.5, 0.66, 0.75]);
     expect(runtime().minAreaW).toBe(0.06);
     expect(runtime().minAreaH).toBe(0.06);
     expect(runtime().cornerArm).toBe(0.01);
+    expect(runtime().edgeArm).toBe(0.005);
     expect(runtime().hitTolerance).toBe(0.005);
+    expect(runtime().snapDivisions).toBe(12);
+    expect(runtime().historyMax).toBe(60);
   });
 
   it("嵌套 configure 按栈还原", () => {

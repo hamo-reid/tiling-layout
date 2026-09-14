@@ -34,6 +34,30 @@ export const SPACING_DEFAULTS = { regionGap: 2, padRegion: 8, outerGap: 0 };
 export const SIZING_DEFAULTS = { headerH: 26, corner: 14, radius: 6, splitter: 6, splitterLine: 2 };
 
 /**
+ * `LayoutConfig` → `--tl-*` CSS 变量的声明式映射表。
+ *
+ * 新增一个可视配置项 = 在 `LayoutConfig` 加字段 + 在本表加一行;
+ * `configToCssVars` 不再逐条手写 if(旧写法加键要改三处、易漏)。
+ * 每项:css 变量名 / 默认值 / 从配置读取(可能 undefined=未配置)。
+ */
+interface VarSpec {
+  readonly css: string;
+  readonly def: number;
+  readonly read: (c: LayoutConfig) => number | undefined;
+}
+
+const VAR_SPECS: readonly VarSpec[] = [
+  { css: "--tl-region-gap", def: SPACING_DEFAULTS.regionGap, read: (c) => c.spacing?.regionGap },
+  { css: "--tl-pad-region", def: SPACING_DEFAULTS.padRegion, read: (c) => c.spacing?.padRegion },
+  { css: "--tl-outer-gap", def: SPACING_DEFAULTS.outerGap, read: (c) => c.spacing?.outerGap },
+  { css: "--tl-header-h", def: SIZING_DEFAULTS.headerH, read: (c) => c.sizing?.headerH },
+  { css: "--tl-corner", def: SIZING_DEFAULTS.corner, read: (c) => c.sizing?.corner },
+  { css: "--tl-radius", def: SIZING_DEFAULTS.radius, read: (c) => c.sizing?.radius },
+  { css: "--tl-splitter", def: SIZING_DEFAULTS.splitter, read: (c) => c.sizing?.splitter },
+  { css: "--tl-splitter-line", def: SIZING_DEFAULTS.splitterLine, read: (c) => c.sizing?.splitterLine },
+];
+
+/**
  * 合并默认值并把配置展平为 CSS 变量对象(可直接放进 React style，
  * 亦可用作 LayoutProvider 的注入源)。
  * CSS 自定义属性不在 CSSProperties 已知键集合内，此处做唯一一次断言，
@@ -45,20 +69,16 @@ export const SIZING_DEFAULTS = { headerH: 26, corner: 14, radius: 6, splitter: 6
  * @category 渲染与主题
  */
 export function configToCssVars(c?: LayoutConfig, opts?: { partial?: boolean }): CSSProperties {
-  const s = { ...SPACING_DEFAULTS, ...c?.spacing };
-  const z = { ...SIZING_DEFAULTS, ...c?.sizing };
   const out: Record<string, string> = {};
-  // partial:只输出显式配置的键(实例级用),让 LayoutProvider 施加在包裹 div 上的
-  // 全局变量穿透实例内联样式;非 partial:输出全部键(含默认),保持原语义。
   // 判定用 typeof === "number" 而非 !== undefined:运行时可能混入 null/NaN(JSON 反序列化等),
   // 前者会让分支输出 `${null}px` 的非法 CSS,后者统一视为未配置。
-  if (!opts?.partial || typeof c?.spacing?.regionGap === "number") out["--tl-region-gap"] = `${s.regionGap}px`;
-  if (!opts?.partial || typeof c?.spacing?.padRegion === "number") out["--tl-pad-region"] = `${s.padRegion}px`;
-  if (!opts?.partial || typeof c?.spacing?.outerGap === "number") out["--tl-outer-gap"] = `${s.outerGap}px`;
-  if (!opts?.partial || typeof c?.sizing?.headerH === "number") out["--tl-header-h"] = `${z.headerH}px`;
-  if (!opts?.partial || typeof c?.sizing?.corner === "number") out["--tl-corner"] = `${z.corner}px`;
-  if (!opts?.partial || typeof c?.sizing?.radius === "number") out["--tl-radius"] = `${z.radius}px`;
-  if (!opts?.partial || typeof c?.sizing?.splitter === "number") out["--tl-splitter"] = `${z.splitter}px`;
-  if (!opts?.partial || typeof c?.sizing?.splitterLine === "number") out["--tl-splitter-line"] = `${z.splitterLine}px`;
+  for (const spec of VAR_SPECS) {
+    const v = spec.read(c ?? {});
+    if (opts?.partial) {
+      if (typeof v === "number") out[spec.css] = `${v}px`;
+    } else {
+      out[spec.css] = `${typeof v === "number" ? v : spec.def}px`;
+    }
+  }
   return out as CSSProperties;
 }
