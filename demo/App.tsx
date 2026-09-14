@@ -16,6 +16,7 @@ const DEFAULT_HINT =
 type ColorMode = NonNullable<LayoutConfig["colorMode"]>;
 const THEME_ICON: Record<ColorMode, string> = { system: "🌓", light: "☀️", dark: "🌙" };
 const SAVE_KEY = "tiling-layout-v1";
+const CONFIG_KEY = "tiling-layout-demo-config-v1";
 
 /** demo 默认配置 = 库出厂默认 + 保持原 demo 观感的 regionGap=5 */
 const DEFAULT_CONFIG: LayoutConfig = {
@@ -33,6 +34,24 @@ function cloneConfig(c: LayoutConfig): LayoutConfig {
     sizing: { ...c.sizing },
     interaction: c.interaction ? { ...c.interaction, dockSnap: [...(c.interaction.dockSnap ?? [])] } : undefined,
   };
+}
+
+/** 读取持久化的配置(缺字段用默认补齐;坏数据回退默认) */
+function loadConfig(): LayoutConfig {
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY);
+    if (!raw) return cloneConfig(DEFAULT_CONFIG);
+    const saved = JSON.parse(raw) as LayoutConfig;
+    return cloneConfig({
+      ...DEFAULT_CONFIG,
+      ...saved,
+      spacing: { ...DEFAULT_CONFIG.spacing, ...saved.spacing },
+      sizing: { ...DEFAULT_CONFIG.sizing, ...saved.sizing },
+      interaction: { ...DEFAULT_CONFIG.interaction, ...saved.interaction },
+    });
+  } catch {
+    return cloneConfig(DEFAULT_CONFIG);
+  }
 }
 
 /** 演示 v0.3 声明式初始布局:上下两栏 + 右下内联内容(自动注册,type 即唯一身份)。
@@ -61,7 +80,7 @@ const DEMO_INITIAL_LAYOUT: InitialLayout = {
 export function App() {
   const status = useLayout((s) => s.status) || DEFAULT_HINT;
   const ld = useLayoutData();
-  const [config, setConfig] = useState<LayoutConfig>(() => cloneConfig(DEFAULT_CONFIG));
+  const [config, setConfig] = useState<LayoutConfig>(() => loadConfig());
   const [cfgOpen, setCfgOpen] = useState(false);
   const [cfgNonce, setCfgNonce] = useState(0); // 变更「重置」→ 重挂配置面板重灌输入框
   const [autoSave, setAutoSave] = useState(false);
@@ -80,6 +99,11 @@ export function App() {
   useEffect(() => {
     return configureRuntime(config.interaction);
   }, [config.interaction]);
+
+  // 配置持久化:刷新后保留(demo 专用;坏值/隐私模式失败忽略)
+  useEffect(() => {
+    try { localStorage.setItem(CONFIG_KEY, JSON.stringify(config)); } catch { /* 忽略 */ }
+  }, [config]);
 
   // 载入最近持久化工作区(刷新恢复)：优先整集合，回退旧单布局存档
   useEffect(() => {

@@ -25,6 +25,13 @@ type Spacing = NonNullable<LayoutConfig["spacing"]>;
 type Sizing = NonNullable<LayoutConfig["sizing"]>;
 type Interaction = NonNullable<LayoutConfig["interaction"]>;
 
+/** 常用预设:只覆盖视觉组(行为参数保持当前),一键回到某套手感 */
+const PRESETS: ReadonlyArray<{ name: string; patch: LayoutConfig }> = [
+  { name: "紧凑", patch: { spacing: { regionGap: 2, padRegion: 6, outerGap: 8 }, sizing: { headerH: 24, corner: 12, radius: 0, splitter: 8, splitterLine: 2 } } },
+  { name: "宽松", patch: { spacing: { regionGap: 8, padRegion: 12, outerGap: 16 }, sizing: { headerH: 32, corner: 18, radius: 8, splitter: 12, splitterLine: 2 } } },
+  { name: "宽热区细线", patch: { sizing: { splitter: 20, splitterLine: 1 } } },
+];
+
 /** 数值输入行:label + input + 功效小字 */
 function NumField({ label, hint, value, step, min, max, onChange }: {
   label: string;
@@ -94,6 +101,11 @@ export function ConfigPanel({ config, onChange, onReset, onClose }: ConfigPanelP
   const setSpacing = (patch: Spacing): void => onChange({ ...config, spacing: { ...spacing, ...patch } });
   const setSizing = (patch: Sizing): void => onChange({ ...config, sizing: { ...sizing, ...patch } });
   const setInteraction = (patch: Interaction): void => onChange({ ...config, interaction: { ...interaction, ...patch } });
+  const applyPreset = (patch: LayoutConfig): void => onChange({
+    ...config,
+    spacing: { ...spacing, ...patch.spacing },
+    sizing: { ...sizing, ...patch.sizing },
+  });
 
   return (
     <aside className="cfg-panel" role="dialog" aria-label="布局配置">
@@ -105,6 +117,16 @@ export function ConfigPanel({ config, onChange, onReset, onClose }: ConfigPanelP
       </header>
 
       <div className="cfg-body">
+        <section className="cfg-sec">
+          <h4 className="cfg-sec__title">预设</h4>
+          <div className="cfg-presets">
+            {PRESETS.map((p) => (
+              <button key={p.name} type="button" className="cfg-preset"
+                      onClick={() => applyPreset(p.patch)}>{p.name}</button>
+            ))}
+          </div>
+        </section>
+
         <section className="cfg-sec">
           <h4 className="cfg-sec__title">主题 colorMode</h4>
           <label className="cfg-field">

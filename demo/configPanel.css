@@ -123,3 +123,21 @@
   background: var(--tl-accent-soft);
   border-radius: 0 var(--tl-r-sm, 4px) var(--tl-r-sm, 4px) 0;
 }
+
+.cfg-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cfg-preset {
+  padding: 4px 10px;
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-r-sm, 4px);
+  background: var(--tl-bg);
+  color: var(--tl-text);
+  font: inherit;
+  font-size: var(--tl-fs-2, 12px);
+  cursor: pointer;
+}
+.cfg-preset:hover { border-color: var(--tl-accent); color: var(--tl-accent); }
