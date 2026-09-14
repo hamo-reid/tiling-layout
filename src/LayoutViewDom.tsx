@@ -9,6 +9,9 @@ import { Content, getContentTitle } from "./registry";
 import { configToCssVars } from "./theme";
 import type { LayoutConfig } from "./theme";
 import { useWorkspaces } from "./workspaces";
+import { boxPct, pct } from "./domPct";
+import { useLayoutGestureBridge } from "./useLayoutGestureBridge";
+import { LayoutPreview } from "./LayoutPreview";
 
 /**
  * 渲染插槽：定制"可见内容"，交互宿主(头部拖拽停靠/角标命中/分界线拖拽)仍由 lib 保留。
@@ -57,24 +60,15 @@ export interface RenderSlots {
  *   - 分界线 : 细条 <div>，可拖拽改大小(beginResize)
  *   - 角标   : <button> 十字，拖拽分割/合并/交换(beginCorner)，hover 高亮共享块
  *   - 预览   : 覆盖层 <div>(split/join/dock)，pointer-events:none
+ *
+ * 事件桥(useLayoutGestureBridge)与预览层(LayoutPreview)已拆出独立模块。
  */
-
-/** 归一化比例矩形 → DOM 百分比盒(含 y 翻转：top 用 (1-ymax)) */
-function boxPct(r: G.Rect) {
-  const pct = (n: number) => `${+(n * 100).toFixed(4)}%`;
-  return {
-    left: pct(r.xmin),
-    top: pct(1 - r.ymax),
-    width: pct(r.xmax - r.xmin),
-    height: pct(r.ymax - r.ymin),
-  };
-}
 
 /** 库的(唯一)渲染组件的 props
  * @category 渲染与主题
  */
 export interface LayoutViewDomProps {
-  /** 视觉/间距配置(实例级覆盖，展开为 --tl-* CSS 变量) */
+  /** 视觉/间距配置(实例级覆盖，展开为 --tl-* CSS 变量)。⚠ interaction 是全局的,写这里无效。 */
   theme?: LayoutConfig;
   /** 渲染插槽(定制头部/角标/分界线/区域盒/预览层；不传用默认外观) */
   slots?: RenderSlots;
@@ -121,6 +115,11 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
   const [hoverCorner, setHoverCorner] = useState<string | null>(null);
   /** flow 0 高兜底告警只报一次 */
   const warnedFlowRef = useRef(false);
+  /** interaction 误挂实例主题的告警只报一次 */
+  const warnedInteractionRef = useRef(false);
+
+  /** 全局手势事件桥 + 本地 onMouseDown 用的坐标换算 */
+  const ptToMath = useLayoutGestureBridge(stageRef);
 
   /** 推导分界线段(矩形平铺的派生数据；id 确定性分配，可直接用作 key 与交互标识) */
   const segs = useMemo(() => G.deriveEdges(screen), [screen]);
@@ -132,82 +131,6 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
     if (!seg) return new Set<number>();
     return new Set([...G.connectedSegs(screen, seg)].map((x) => x.id));
   }, [hoverEdgeId, segs, screen]);
-
-  /** 屏幕像素 → 归一化比例(x 向右、y 向上)。基准是 .tl-stage(区域铺排盒)，
-   *  与区域百分比定位同一坐标系；outerGap 内缩已含在 stage 矩形里。
-   *  容器不可量测(0 宽高，如 display:none 祖先或未布局)时返回 null——
-   *  此时换算会产生 Infinity/NaN，一旦入库会被快照链路静默放大成数据丢失 */
-  const ptToMath = (e: { clientX: number; clientY: number }) => {
-    const el = stageRef.current;
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) return null;
-    return {
-      x: (e.clientX - r.left) / r.width,
-      y: 1 - (e.clientY - r.top) / r.height,
-    };
-  };
-
-  // 全局事件桥
-  useEffect(() => {
-    const mv = (e: PointerEvent) => {
-      const m = ptToMath(e);
-      if (!m) return;
-      const st = useLayout.getState();
-      if (st.mode === "corner") st.cornerMove(m.x, m.y);
-      else if (st.mode === "resizing") st.resizeMove(m.x, m.y);
-      else if (st.mode === "docking") st.dockMove(m.x, m.y);
-    };
-    const up = (e: MouseEvent) => {
-      if (e.button === 0) {
-        const st = useLayout.getState();
-        if (st.mode === "corner") st.cornerUp();
-        else if (st.mode === "resizing") st.endResize();
-        else if (st.mode === "docking") st.dockUp();
-      }
-    };
-    const kd = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        const st = useLayout.getState();
-        if (st.mode !== "idle") st.cancel();
-        else if (st.maximizedId != null) st.exitMaximize();
-      }
-      else if (e.key === "Tab") {
-        // 仅角标手势中劫持 Tab(切换分割方向)；idle 等其余模式交还宿主页面，
-        // 不再全局破坏浏览器键盘导航
-        const st = useLayout.getState();
-        if (st.mode === "corner") { e.preventDefault(); st.toggleSplitDir(); }
-      }
-      else if (e.key === "Control") useLayout.getState().setCtrl(true);
-    };
-    const ku = (e: KeyboardEvent) => { if (e.key === "Control") useLayout.getState().setCtrl(false); };
-    const ctx = (e: MouseEvent) => {
-      if (useLayout.getState().mode !== "idle") { e.preventDefault(); useLayout.getState().cancel(); }
-    };
-    // 手势中断兜底：指针移出浏览器窗口(窗口失焦)或触屏被系统打断(pointercancel)
-    // 时收不到成对的 pointerup，手势会永久卡死——一律安全取消
-    const abort = () => {
-      const st = useLayout.getState();
-      if (st.mode !== "idle") st.cancel();
-    };
-    window.addEventListener("pointermove", mv);
-    window.addEventListener("mouseup", up);
-    window.addEventListener("keydown", kd);
-    window.addEventListener("keyup", ku);
-    window.addEventListener("contextmenu", ctx);
-    window.addEventListener("blur", abort);
-    window.addEventListener("pointercancel", abort);
-    return () => {
-      window.removeEventListener("pointermove", mv);
-      window.removeEventListener("mouseup", up);
-      window.removeEventListener("keydown", kd);
-      window.removeEventListener("keyup", ku);
-      window.removeEventListener("contextmenu", ctx);
-      window.removeEventListener("blur", abort);
-      window.removeEventListener("pointercancel", abort);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // flow 模式 0 高兜底告警：父级 auto/min-height 时 height:100% 退化为 auto、唯一子元素
   // 又是 absolute → 舞台塌 0 高空白无任何提示。主动 warn 把静默失败变可诊断(参照 allotment FAQ)
@@ -222,6 +145,16 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
       );
     }
   }, [positioning]);
+
+  // interaction(行为参数)是全局单例,LayoutViewDom 的 theme 对它是 no-op:误挂时提示一次。
+  useEffect(() => {
+    if (!theme?.interaction || warnedInteractionRef.current) return;
+    warnedInteractionRef.current = true;
+    console.warn(
+      "[tiling-layout] LayoutViewDom 的 theme.interaction 已忽略:行为参数是全局的," +
+      "请经 LayoutProvider 或 configureRuntime 设置。",
+    );
+  }, [theme?.interaction]);
 
   // initialLayout 引导：页面级一次(模块级标记)，且仅在「活跃种子布局仍是最初状态」时应用。
   // 交互过(几何/内容/场景变化)、活跃工作区非种子、或已被其它实例/程序化 install 引导过
@@ -273,8 +206,6 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
               : G.withRect(dkTgtRect, { ymin: dkTgtRect.ymax - dkTgtRect.height * f });
       })()
     : null;
-
-  const pct = (n: number) => `${+(n * 100).toFixed(4)}%`;
 
   return (
     <div className="tl-stage-wrap" ref={wrapRef} data-positioning={positioning}
@@ -344,8 +275,8 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
                      beginResize(e, m);
                    }
                  }}>
-                {slots?.renderEdge ? slots.renderEdge({ edgeId: e.id, vertical: vert, hovered: hoverEdgeId === e.id }) : null}
-              </div>
+              {slots?.renderEdge ? slots.renderEdge({ edgeId: e.id, vertical: vert, hovered: hoverEdgeId === e.id }) : null}
+            </div>
           );
         })}
 
@@ -374,66 +305,18 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
         })}
 
         {/* 预览：分割 / 合并 / 停靠 —— 可用 renderPreview 自定义 */}
-        {mode === "corner" && srcR && splitDir && !tgtR && (
-          <div className="tl-preview-layer">
-            {slots?.renderPreview
-              ? slots.renderPreview({ mode: "split", srcRect: srcR, splitDir, splitLine })
-              : (
-                <>
-                  {[0, 1].map((i) => {
-                    const blk: G.Rect = splitDir === G.AXIS.H
-                      ? i === 0 ? G.withRect(srcR, { ymax: splitLine - 0.003 }) : G.withRect(srcR, { ymin: splitLine + 0.003 })
-                      : i === 0 ? G.withRect(srcR, { xmax: splitLine - 0.003 }) : G.withRect(srcR, { xmin: splitLine + 0.003 });
-                    if (blk.xmax <= blk.xmin || blk.ymax <= blk.ymin) return null;
-                    return <div key={i} className="tl-preview-block" style={boxPct(blk)} />;
-                  })}
-                  <div className="tl-preview-line"
-                       style={splitDir === G.AXIS.H
-                         ? { left: pct(srcR.xmin), top: `calc(${pct(1 - splitLine)} - 1.5px)`, width: pct(srcR.width), height: 3 }
-                         : { left: `calc(${pct(splitLine)} - 1.5px)`, top: pct(1 - srcR.ymax), width: 3, height: pct(srcR.height) }} />
-                </>
-              )}
-          </div>
-        )}
-        {mode === "corner" && srcR && tgtR && (
-          <div className="tl-preview-layer">
-            {slots?.renderPreview
-              ? slots.renderPreview({ mode: "join", srcRect: srcR, tgtRect: tgtR })
-              : (
-                <>
-                  <div className="tl-preview-join" style={boxPct(tgtR)} />
-                  <div className="tl-preview-src" style={boxPct(srcR)} />
-                </>
-              )}
-          </div>
-        )}
-        {mode === "docking" && dkSrcR && (
-          <div className="tl-preview-layer">
-            {slots?.renderPreview
-              ? slots.renderPreview({
-                  mode: "dock",
-                  srcRect: dkSrcR,
-                  tgtRect: dkTgtRect ?? undefined,
-                  dockTarget: dock?.target,
-                  slotRect: dkSlot ?? undefined,
-                })
-              : (
-                <>
-                  <div className="tl-preview-ghost" style={boxPct(dkSrcR)} />
-                  {dkTgtRect && dock && dock.target !== "none" && (
-                    dock.target === "center"
-                      ? <div className="tl-preview-center" style={boxPct(dkTgtRect)} />
-                      : dkSlot && (
-                          <>
-                            <div className="tl-preview-target" style={boxPct(dkTgtRect)} />
-                            <div className="tl-preview-slot" style={boxPct(dkSlot)} />
-                          </>
-                        )
-                  )}
-                </>
-              )}
-          </div>
-        )}
+        <LayoutPreview
+          mode={mode}
+          slots={slots}
+          srcRect={srcR}
+          tgtRect={tgtR}
+          splitDir={splitDir}
+          splitLine={splitLine}
+          dockSrcRect={dkSrcR}
+          dockTgtRect={dkTgtRect}
+          dockSlot={dkSlot}
+          dockTarget={dock?.target}
+        />
       </div>
     </div>
   );
