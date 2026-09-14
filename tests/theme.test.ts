@@ -15,17 +15,19 @@ describe("主题/间距配置(config), 默认=现状", () => {
     expect(v["--tl-corner"]).toBe("14px");
     expect(v["--tl-radius"]).toBe("6px");
     expect(v["--tl-splitter"]).toBe("6px");
+    expect(v["--tl-splitter-line"]).toBe("2px");
   });
 
   it("部分覆盖 merge, 未覆盖项保留默认", () => {
     const v = asVarMap(configToCssVars({
       spacing: { regionGap: 8, outerGap: 16 },
-      sizing: { corner: 20, splitter: 10 },
+      sizing: { corner: 20, splitter: 10, splitterLine: 3 },
     }) as Record<string, string>);
     expect(v["--tl-region-gap"]).toBe("8px");
     expect(v["--tl-outer-gap"]).toBe("16px");
     expect(v["--tl-corner"]).toBe("20px");
     expect(v["--tl-splitter"]).toBe("10px");
+    expect(v["--tl-splitter-line"]).toBe("3px");
     expect(v["--tl-header-h"]).toBe("26px");   // 未覆盖
     expect(v["--tl-pad-region"]).toBe("8px");  // 未覆盖
     expect(v["--tl-radius"]).toBe("6px");      // 未覆盖
@@ -36,5 +38,6 @@ describe("主题/间距配置(config), 默认=现状", () => {
     expect(v["--tl-outer-gap"]).toBe("12px");
     expect("--tl-region-gap" in v).toBe(false); // 未显式配置 → 不输出
     expect("--tl-splitter" in v).toBe(false);
+    expect("--tl-splitter-line" in v).toBe(false);
   });
 });

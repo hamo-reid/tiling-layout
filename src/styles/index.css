@@ -97,9 +97,21 @@
     z-index: 5;
   }
   .tl-asplit[data-vertical="true"] { cursor: ew-resize; }
-  .tl-asplit:hover { background: var(--tl-accent-border); }
+  /* 命中区(--tl-splitter 带宽)与视觉线(--tl-splitter-line 线宽)解耦:
+     热区可宽便于抓取,中央细线保持纤细;hover 只高亮这条细线。 */
+  .tl-asplit::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    background: transparent;
+    transition: background var(--tl-motion-fast, 120ms) ease;
+  }
+  .tl-asplit[data-vertical="true"]::after { width: var(--tl-splitter-line, 2px); height: 100%; }
+  .tl-asplit[data-vertical="false"]::after { width: 100%; height: var(--tl-splitter-line, 2px); }
   /* hover 所在线的同向连通族整条高亮(与单段 hover 一致，但作用于整条被切分的长线) */
-  .tl-asplit-hot { background: var(--tl-accent-border); }
+  .tl-asplit:hover::after,
+  .tl-asplit-hot::after { background: var(--tl-accent-border); }
 
   .tl-corner {
     position: absolute;

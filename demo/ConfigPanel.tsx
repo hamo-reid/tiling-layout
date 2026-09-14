@@ -169,9 +169,15 @@ export function ConfigPanel({ config, onChange, onReset, onClose }: ConfigPanelP
           />
           <NumField
             label="分界线带宽 splitter"
-            hint="拖拽分界线的命中带宽(px):调大好点、调小更精细。"
+            hint="拖拽分界线的命中带宽(px):调大好抓取;与下面的线宽解耦,不会把线变粗。"
             value={sizing.splitter ?? 0}
             onChange={(v) => setSizing({ splitter: v })}
+          />
+          <NumField
+            label="分界线线宽 splitterLine"
+            hint="分界线的视觉线宽(px),独立于上面的命中带宽:热区可宽、线保持纤细。"
+            value={sizing.splitterLine ?? 0}
+            onChange={(v) => setSizing({ splitterLine: v })}
           />
         </section>
 

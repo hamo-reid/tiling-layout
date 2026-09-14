@@ -16,8 +16,8 @@ export interface LayoutConfig {
   colorMode?: "dark" | "light" | "system";
   /** 间距：区域间隔(描边宽) / 内容内边距 / 舞台四周留白 */
   spacing?: { regionGap?: number; padRegion?: number; outerGap?: number };
-  /** 尺寸：区域头部高 / 角标尺寸 / 圆角 / 分界线命中带宽 */
-  sizing?: { headerH?: number; corner?: number; radius?: number; splitter?: number };
+  /** 尺寸：区域头部高 / 角标尺寸 / 圆角 / 分界线命中带宽 / 分界线线宽 */
+  sizing?: { headerH?: number; corner?: number; radius?: number; splitter?: number; splitterLine?: number };
   /** 行为参数(停靠热区/吸附网格/最小区域/角点阈值/命中容差)。
    *  ⚠ 只能作用到全局单例(几何层/状态机无 React 上下文)：经 LayoutProvider 或
    *  configureRuntime 生效；写在 LayoutViewDom 的 theme 上会被忽略。 */
@@ -28,10 +28,10 @@ export interface LayoutConfig {
  * @category 渲染与主题
  */
 export const SPACING_DEFAULTS = { regionGap: 2, padRegion: 8, outerGap: 0 };
-/** 尺寸默认值：headerH 区域头部高，corner 角标尺寸，radius 圆角，splitter 分界线命中带宽
+/** 尺寸默认值：headerH 区域头部高，corner 角标尺寸，radius 圆角，splitter 分界线命中带宽，splitterLine 分界线线宽
  * @category 渲染与主题
  */
-export const SIZING_DEFAULTS = { headerH: 26, corner: 14, radius: 6, splitter: 6 };
+export const SIZING_DEFAULTS = { headerH: 26, corner: 14, radius: 6, splitter: 6, splitterLine: 2 };
 
 /**
  * 合并默认值并把配置展平为 CSS 变量对象(可直接放进 React style，
@@ -59,5 +59,6 @@ export function configToCssVars(c?: LayoutConfig, opts?: { partial?: boolean }):
   if (!opts?.partial || typeof c?.sizing?.corner === "number") out["--tl-corner"] = `${z.corner}px`;
   if (!opts?.partial || typeof c?.sizing?.radius === "number") out["--tl-radius"] = `${z.radius}px`;
   if (!opts?.partial || typeof c?.sizing?.splitter === "number") out["--tl-splitter"] = `${z.splitter}px`;
+  if (!opts?.partial || typeof c?.sizing?.splitterLine === "number") out["--tl-splitter-line"] = `${z.splitterLine}px`;
   return out as CSSProperties;
 }
