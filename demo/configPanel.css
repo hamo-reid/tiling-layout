@@ -1,0 +1,125 @@
+/* cfg-* — demo 专用「布局配置」面板样式(不属于库)。变量全部来自库的 tl-* 令牌。
+ * 右侧浮层、无遮罩:画布保持可交互,便于一边调一边拖拽看效果。 */
+
+.cfg-panel {
+  position: fixed;
+  top: calc(var(--tl-topbar-h, 48px) + 8px);
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-direction: column;
+  background: var(--tl-panel);
+  color: var(--tl-text);
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-r-md, 6px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.38);
+  overflow: hidden;
+}
+
+.cfg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--tl-border);
+  background: var(--tl-panel-hover);
+}
+
+.cfg-head__title { font-size: var(--tl-fs-1, 14px); }
+.cfg-head__sub { flex: 1; font-size: var(--tl-fs-2, 12px); color: var(--tl-muted); }
+
+.cfg-head__btn,
+.cfg-head__close {
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-r-sm, 4px);
+  background: var(--tl-bg);
+  color: var(--tl-muted);
+  font: inherit;
+  font-size: var(--tl-fs-2, 12px);
+  cursor: pointer;
+}
+
+.cfg-head__btn { padding: 3px 8px; }
+.cfg-head__close { width: 22px; height: 22px; padding: 0; line-height: 1; }
+.cfg-head__btn:hover,
+.cfg-head__close:hover { border-color: var(--tl-accent); color: var(--tl-accent); }
+
+.cfg-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 12px 12px;
+}
+
+.cfg-sec {
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--tl-spacer);
+}
+.cfg-sec:last-child { border-bottom: 0; }
+
+.cfg-sec__title {
+  margin: 0 0 6px;
+  font-size: var(--tl-fs-2, 12px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
+}
+
+.cfg-tag {
+  font-style: normal;
+  font-size: 10px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--tl-accent-soft);
+  color: var(--tl-accent-strong, var(--tl-accent));
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* 字段:上行 label + input,下行整行功效小字 */
+.cfg-field {
+  display: grid;
+  grid-template-columns: 1fr 88px;
+  grid-template-areas: "label input" "hint hint";
+  align-items: center;
+  gap: 2px 8px;
+  padding: 6px 0;
+}
+
+.cfg-field__label { grid-area: label; font-size: var(--tl-fs-2, 12px); color: var(--tl-text); }
+
+.cfg-field__input {
+  grid-area: input;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-r-sm, 4px);
+  background: var(--tl-bg);
+  color: var(--tl-text);
+  font: inherit;
+  font-size: var(--tl-fs-2, 12px);
+}
+.cfg-field__input:focus { outline: 1px solid var(--tl-accent); border-color: var(--tl-accent); }
+
+.cfg-field__hint {
+  grid-area: hint;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--tl-muted);
+}
+
+.cfg-note {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--tl-muted);
+  border-left: 2px solid var(--tl-accent);
+  background: var(--tl-accent-soft);
+  border-radius: 0 var(--tl-r-sm, 4px) var(--tl-r-sm, 4px) 0;
+}

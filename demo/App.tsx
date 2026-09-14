@@ -1,19 +1,39 @@
 import { useEffect, useRef, useState } from "react";
 import { LayoutViewDom } from "../src/LayoutViewDom";
-import type { ContentProps, InitialLayout } from "../src/public-api";
+import type { ContentProps, InitialLayout, LayoutConfig } from "../src/public-api";
+import { configureRuntime, RUNTIME_DEFAULTS, SIZING_DEFAULTS, SPACING_DEFAULTS } from "../src/public-api";
 import { useLayout } from "../src/layoutStore";
 import { serializeLayout } from "../src/layoutData";
 import { useLayoutData } from "../src/useLayoutData";
 import { layoutBus } from "../src/layoutBus";
 import { deserializeWorkspaces, serializeWorkspaces, WORKSPACES_KEY } from "../src/workspaces";
+import { ConfigPanel } from "./ConfigPanel";
 import "./content"; // 演示内容组件(editor/outline/properties)
 
 const DEFAULT_HINT =
-  "就绪 — 角标 ⌖ 拖拽：同区分割 / 拖到相邻区合并 / Ctrl+拖交换内容 · 拖分界线调整大小 · Ctrl 吸附 · 角标手势中 Tab 切方向 · Esc/右键 取消";
+  "就绪 — 顶栏「⚙ 配置」可实时调间距/尺寸/行为并即时预览 · 角标 ⌖ 拖拽:同区分割 / 拖到相邻区合并 / Ctrl+拖交换内容 · 拖分界线调整大小 · Ctrl 吸附 · 角标手势中 Tab 切方向 · Esc/右键 取消";
 
-type Theme = "" | "light" | "dark"; // "" = 跟随系统
-const THEME_ICON: Record<Theme, string> = { "": "🌓", light: "☀️", dark: "🌙" };
+type ColorMode = NonNullable<LayoutConfig["colorMode"]>;
+const THEME_ICON: Record<ColorMode, string> = { system: "🌓", light: "☀️", dark: "🌙" };
 const SAVE_KEY = "tiling-layout-v1";
+
+/** demo 默认配置 = 库出厂默认 + 保持原 demo 观感的 regionGap=5 */
+const DEFAULT_CONFIG: LayoutConfig = {
+  colorMode: "system",
+  spacing: { ...SPACING_DEFAULTS, regionGap: 5 },
+  sizing: { ...SIZING_DEFAULTS },
+  interaction: { ...RUNTIME_DEFAULTS, dockSnap: [...RUNTIME_DEFAULTS.dockSnap] },
+};
+
+/** 深拷贝配置(避免「重置」时状态里残留旧引用) */
+function cloneConfig(c: LayoutConfig): LayoutConfig {
+  return {
+    ...c,
+    spacing: { ...c.spacing },
+    sizing: { ...c.sizing },
+    interaction: c.interaction ? { ...c.interaction, dockSnap: [...(c.interaction.dockSnap ?? [])] } : undefined,
+  };
+}
 
 /** 演示 v0.3 声明式初始布局:上下两栏 + 右下内联内容(自动注册,type 即唯一身份)。
  *  与默认三区明显不同,打开即可看到 initialLayout 生效。 */
@@ -37,21 +57,29 @@ const DEMO_INITIAL_LAYOUT: InitialLayout = {
   ],
 };
 
-/** Demo 外壳：顶栏(状态提示 + 数据操作 + 主题) + DOM 渲染视图。仅演示用，不属于库。 */
+/** Demo 外壳：顶栏(状态提示 + 数据操作 + 配置/主题) + DOM 渲染视图。仅演示用，不属于库。 */
 export function App() {
   const status = useLayout((s) => s.status) || DEFAULT_HINT;
   const ld = useLayoutData();
-  const [theme, setTheme] = useState<Theme>("");
+  const [config, setConfig] = useState<LayoutConfig>(() => cloneConfig(DEFAULT_CONFIG));
+  const [cfgOpen, setCfgOpen] = useState(false);
+  const [cfgNonce, setCfgNonce] = useState(0); // 变更「重置」→ 重挂配置面板重灌输入框
   const [autoSave, setAutoSave] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ""=跟随系统：必须移除属性(写空值属性会让 tokens.css 的 :not([data-theme]) 失效)
+  // 主题:config.colorMode → documentElement[data-theme]("system" 必须移除属性,
+  // 否则 tokens.css 的 :not([data-theme]) 系统跟随分支失效)
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "") root.removeAttribute("data-theme");
-    else root.dataset.theme = theme;
-  }, [theme]);
-  const cycleTheme = () => setTheme(theme === "" ? "light" : theme === "light" ? "dark" : "");
+    const mode = config.colorMode ?? "system";
+    if (mode === "system") root.removeAttribute("data-theme");
+    else root.dataset.theme = mode;
+  }, [config.colorMode]);
+
+  // 行为参数(全局单例):实时应用,effect 清理时还原上一份
+  useEffect(() => {
+    return configureRuntime(config.interaction);
+  }, [config.interaction]);
 
   // 载入最近持久化工作区(刷新恢复)：优先整集合，回退旧单布局存档
   useEffect(() => {
@@ -94,6 +122,17 @@ export function App() {
     e.target.value = "";
   };
 
+  const cycleTheme = () => {
+    const cur = config.colorMode ?? "system";
+    const next: ColorMode = cur === "system" ? "light" : cur === "light" ? "dark" : "system";
+    setConfig((c) => ({ ...c, colorMode: next }));
+  };
+
+  const resetConfig = () => {
+    setConfig(cloneConfig(DEFAULT_CONFIG));
+    setCfgNonce((n) => n + 1);
+  };
+
   return (
     <>
       <header id="topbar">
@@ -113,20 +152,32 @@ export function App() {
         <button className="theme-toggle" onClick={exportLayout} title="导出布局 JSON 文件">⬇️</button>
         <button className="theme-toggle" onClick={() => fileRef.current?.click()} title="导入布局 JSON 文件">⬆️</button>
         <input ref={fileRef} type="file" accept="application/json,.json" onChange={importLayout} style={{ display: "none" }} />
+        <button className="theme-toggle" onClick={() => setCfgOpen((v) => !v)}
+                style={{ color: cfgOpen ? "var(--tl-accent)" : undefined }}
+                title="布局配置(实时预览)">⚙ 配置</button>
         <button className="theme-toggle" onClick={cycleTheme} title="切换主题：系统 / 浅色 / 深色">
-          {THEME_ICON[theme]}
+          {THEME_ICON[config.colorMode ?? "system"]}
         </button>
       </header>
       <main id="canvas-wrap">
         <LayoutViewDom
           positioning="flow"
           initialLayout={DEMO_INITIAL_LAYOUT}
-          theme={{ spacing: { regionGap: 5 } }}
+          theme={config}
           slots={{
             renderHeader: (ctx) => <>{ctx.title}<small style={{ opacity: .7, marginLeft: 6 }}>#{ctx.areaId}</small></>,
           }}
         />
       </main>
+      {cfgOpen && (
+        <ConfigPanel
+          key={cfgNonce}
+          config={config}
+          onChange={setConfig}
+          onReset={resetConfig}
+          onClose={() => setCfgOpen(false)}
+        />
+      )}
     </>
   );
 }
