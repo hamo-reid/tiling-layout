@@ -67,6 +67,9 @@ export { LayoutProvider } from "./LayoutProvider";
 export type { LayoutProviderProps } from "./LayoutProvider";
 export { configToCssVars, SPACING_DEFAULTS, SIZING_DEFAULTS } from "./theme";
 export type { LayoutConfig } from "./theme";
+// 行为参数(全局):LayoutProvider 会应用 config.interaction;非 React 场景直接调 configureRuntime
+export { configureRuntime, runtime, RUNTIME_DEFAULTS } from "./runtimeConfig";
+export type { RuntimeConfig } from "./runtimeConfig";
 
 // 声明式初始布局引导(替换默认布局 + 内联内容定义自动注册)
 export { installInitialLayout, isPristineScreen, isLayoutBootstrapped } from "./initialLayout";

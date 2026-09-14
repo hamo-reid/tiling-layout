@@ -14,13 +14,17 @@
      padding 由内容盒天然内缩舞台、margin 天然在外侧;要求父级有确定高度(否则塌 0 高,
      LayoutViewDom 会 console.warn)。内部 .tl-stage 仍 absolute 定位于此(relative 亦为定位祖先)。 */
   .tl-stage-wrap[data-positioning="flow"] { position: relative; width: 100%; height: 100%; }
+  /* 舞台铺排盒:四周可留白(outerGap)。区域百分比定位与指针换算都以本元素为基准
+     (见 LayoutViewDom.stageRef);outerGap=0 时与 .tl-stage-wrap 同矩形,零回归。 */
   .tl-stage {
     position: absolute;
-    inset: 0;
+    inset: var(--tl-outer-gap, 0);
   }
 
   .tl-area-box {
     position: absolute;
+    /* 库自带 border-box,不依赖宿主全局 reset:regionGap 当 border 时内外表现确定 */
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     background: var(--tl-panel);

@@ -6,6 +6,7 @@
  * `var(--tl-x, 默认)` 兜底，因此不配任何东西时外观与默认完全一致(零回归)。
  */
 import type { CSSProperties } from "react";
+import type { RuntimeConfig } from "./runtimeConfig";
 
 /** 间距类配置项
  * @category 渲染与主题
@@ -13,20 +14,24 @@ import type { CSSProperties } from "react";
 export interface LayoutConfig {
   /** 明/暗/系统(写 documentElement[data-theme]) */
   colorMode?: "dark" | "light" | "system";
-  /** 间距：区域间隔(描边宽) / 内容内边距 */
-  spacing?: { regionGap?: number; padRegion?: number };
-  /** 尺寸：区域头部高 / 角标尺寸 / 圆角 */
-  sizing?: { headerH?: number; corner?: number; radius?: number };
+  /** 间距：区域间隔(描边宽) / 内容内边距 / 舞台四周留白 */
+  spacing?: { regionGap?: number; padRegion?: number; outerGap?: number };
+  /** 尺寸：区域头部高 / 角标尺寸 / 圆角 / 分界线命中带宽 */
+  sizing?: { headerH?: number; corner?: number; radius?: number; splitter?: number };
+  /** 行为参数(停靠热区/吸附网格/最小区域/角点阈值/命中容差)。
+   *  ⚠ 只能作用到全局单例(几何层/状态机无 React 上下文)：经 LayoutProvider 或
+   *  configureRuntime 生效；写在 LayoutViewDom 的 theme 上会被忽略。 */
+  interaction?: Partial<RuntimeConfig>;
 }
 
-/** 间距默认值：regionGap 区域间隔(描边宽)，padRegion 内容内边距
+/** 间距默认值：regionGap 区域间隔(描边宽)，padRegion 内容内边距，outerGap 舞台四周留白
  * @category 渲染与主题
  */
-export const SPACING_DEFAULTS = { regionGap: 2, padRegion: 8 };
-/** 尺寸默认值：headerH 区域头部高，corner 角标尺寸，radius 圆角
+export const SPACING_DEFAULTS = { regionGap: 2, padRegion: 8, outerGap: 0 };
+/** 尺寸默认值：headerH 区域头部高，corner 角标尺寸，radius 圆角，splitter 分界线命中带宽
  * @category 渲染与主题
  */
-export const SIZING_DEFAULTS = { headerH: 26, corner: 14, radius: 6 };
+export const SIZING_DEFAULTS = { headerH: 26, corner: 14, radius: 6, splitter: 6 };
 
 /**
  * 合并默认值并把配置展平为 CSS 变量对象(可直接放进 React style，
@@ -49,8 +54,10 @@ export function configToCssVars(c?: LayoutConfig, opts?: { partial?: boolean }):
   // 前者会让分支输出 `${null}px` 的非法 CSS,后者统一视为未配置。
   if (!opts?.partial || typeof c?.spacing?.regionGap === "number") out["--tl-region-gap"] = `${s.regionGap}px`;
   if (!opts?.partial || typeof c?.spacing?.padRegion === "number") out["--tl-pad-region"] = `${s.padRegion}px`;
+  if (!opts?.partial || typeof c?.spacing?.outerGap === "number") out["--tl-outer-gap"] = `${s.outerGap}px`;
   if (!opts?.partial || typeof c?.sizing?.headerH === "number") out["--tl-header-h"] = `${z.headerH}px`;
   if (!opts?.partial || typeof c?.sizing?.corner === "number") out["--tl-corner"] = `${z.corner}px`;
   if (!opts?.partial || typeof c?.sizing?.radius === "number") out["--tl-radius"] = `${z.radius}px`;
+  if (!opts?.partial || typeof c?.sizing?.splitter === "number") out["--tl-splitter"] = `${z.splitter}px`;
   return out as CSSProperties;
 }

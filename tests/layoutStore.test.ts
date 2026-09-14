@@ -4,6 +4,7 @@ import { useLayout } from "../src/layoutStore";
 import { buildInitialScreen } from "../src/screen";
 import { getAreaState, setAreaState, useAreaState } from "../src/areaStore";
 import { collectSnapshot } from "../src/layoutData";
+import { configureRuntime } from "../src/runtimeConfig";
 
 /** 当前屏幕三类区域 id(buildInitialScreen 从 _id=1 起分配 → 1/2/3，勿硬编码数值) */
 function ids() {
@@ -277,6 +278,71 @@ describe("layoutStore dock 停靠", () => {
 
     useLayout.getState().dockUp();
     expect(useLayout.getState().status).toBe("已取消");
+  });
+
+  it("仅与目标整边相邻(无第三方可吞并)时四边停靠:并集重排为两块", () => {
+    // 两区满铺:A 左全高、B 右全高;A 的整边邻居只有 B → 旧逻辑 canClose=false 拒绝,
+    // 新逻辑把 A∪B 重排:A 内容进停靠槽,B 内容进另一块,区域数量不变。
+    const s = G.createScreen();
+    const a = G.addArea(s, G.rect(0, 0, 0.5, 1), "a");
+    const b = G.addArea(s, G.rect(0.5, 0, 1, 1), "b");
+    useLayout.setState({
+      screen: s, mode: "idle", dock: null, status: "",
+      srcId: null, hoverTId: null, splitDir: null, splitLine: 0, snapped: false,
+      past: [], future: [], maximizedId: null, resize: null,
+    });
+    const st = useLayout.getState();
+    st.beginDock(a.id, { x: 0.25, y: 0.9 });
+    st.dockMove(0.75, 0.9); // B 上半 → top
+    expect(useLayout.getState().dock?.target).toBe("top");
+
+    useLayout.getState().dockUp();
+    const fin = useLayout.getState();
+    expect(fin.status).toContain("已停靠");
+    const areas = fin.screen.areas;
+    expect(areas).toHaveLength(2); // 不增删区域
+    const a2 = areas.find((x) => x.id === a.id)!;
+    const b2 = areas.find((x) => x.id === b.id)!;
+    // A 内容在上半、B 在下半,两区并集仍满铺 [0,0,1,1]
+    expect(a2.contentType).toBe("a");
+    expect(b2.contentType).toBe("b");
+    expect(a2.rect.ymin).toBeGreaterThanOrEqual(b2.rect.ymax - 1e-9);
+    expect(a2.rect.xmin).toBeCloseTo(0, 9);
+    expect(a2.rect.xmax).toBeCloseTo(1, 9);
+    expect(b2.rect.xmin).toBeCloseTo(0, 9);
+    expect(b2.rect.xmax).toBeCloseTo(1, 9);
+    expect(b2.rect.ymin).toBeCloseTo(0, 9);
+    expect(a2.rect.ymax).toBeCloseTo(1, 9);
+  });
+
+  it("dockCenter 可调:收窄后原边带点落入中心热区", () => {
+    const ol = ids().outline;
+    const st = useLayout.getState();
+    st.beginDock(ol, { x: 0.7, y: 0.8 });
+    st.dockMove(0.1, 0.5); // editor 近左缘(相对 fx≈0.16)
+    expect(useLayout.getState().dock?.target).toBe("left"); // 出厂 dockCenter=0.25
+    const restore = configureRuntime({ dockCenter: 0.05 });
+    try {
+      useLayout.getState().dockMove(0.1, 0.5);
+      expect(useLayout.getState().dock?.target).toBe("center");
+    } finally {
+      restore();
+    }
+  });
+
+  it("dockSnap 可调:槽占比按自定义网格吸附", () => {
+    const ol = ids().outline;
+    const st = useLayout.getState();
+    st.beginDock(ol, { x: 0.7, y: 0.8 });
+    const restore = configureRuntime({ dockSnap: [0.5] });
+    try {
+      st.dockMove(0.05, 0.5); // editor 左缘 → left,raw≈0.08 → 吸附到唯一网格 0.5
+      const dk = useLayout.getState().dock;
+      expect(dk?.target).toBe("left");
+      expect(dk?.factorDock).toBe(0.5);
+    } finally {
+      restore();
+    }
   });
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as G from "../src/geometry";
 import { buildInitialScreen } from "../src/screen";
+import { configureRuntime } from "../src/runtimeConfig";
 
 function oneRect(w: number, h: number) {
   const s = G.createScreen();
@@ -229,5 +230,27 @@ describe("isBoundaryAdjacent 边界相邻", () => {
     const s = buildInitialScreen();
     expect(G.isBoundaryAdjacent(s, s.areas[0], s.areas[1])).toBe(true);
     expect(G.findSharedEdge(s, s.areas[0], s.areas[1])).toBe(false); // 但非完整边
+  });
+});
+
+describe("几何参数接入(configureRuntime)", () => {
+  it("splitCoord 尺寸下限可调", () => {
+    const { a } = oneRect(0.5, 1);
+    expect(G.splitCoord(a, G.AXIS.V, 0.5)).not.toBeNull();
+    const restore = configureRuntime({ minAreaW: 0.3 });
+    expect(G.splitCoord(a, G.AXIS.V, 0.5)).toBeNull(); // 0.5 <= 2*0.3 → 不可分
+    restore();
+    expect(G.splitCoord(a, G.AXIS.V, 0.5)).not.toBeNull();
+  });
+
+  it("findEdgeAtPos 命中容差缺省读 runtime", () => {
+    const s = buildInitialScreen();
+    const seg = G.deriveEdges(s).find((g) => g.v1.x === g.v2.x)!;
+    const y = (seg.v1.y + seg.v2.y) / 2;
+    const far = seg.v1.x + 0.001; // 距线 0.001
+    const restore = configureRuntime({ hitTolerance: 0.0001 });
+    expect(G.findEdgeAtPos(s, far, y)).toBeNull(); // 0.001 > 0.0001
+    restore();
+    expect(G.findEdgeAtPos(s, far, y)).not.toBeNull(); // 出厂 0.005
   });
 });

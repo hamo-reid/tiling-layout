@@ -25,7 +25,7 @@ sidebar_position: 3
 </div>
 ```
 
-absolute 的 padding 语义要留意:舞台铺的是 padding-box(**含** padding),父元素的 `padding` 不会把舞台往里推——要四周留白,请给 `LayoutViewDom` 传 `style={{ padding: 16 }}`,或再包一层。
+absolute 的 padding 语义要留意:舞台铺的是 padding-box(**含** padding),父元素的 `padding` 不会把舞台往里推。要四周留白,推荐用 **`spacing.outerGap`**(内缩铺排盒 `.tl-stage`,absolute / flow 两种策略一致,且指针换算同步内缩):`theme={{ spacing: { outerGap: 12 } }}`。也可给 `LayoutViewDom` 传 `style={{ padding: 16 }}`,或再包一层。
 
 ## flow:铺满父元素内容盒
 

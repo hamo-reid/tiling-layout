@@ -17,6 +17,7 @@
  * applySnapshot 恢复时同一坐标原样写回），故邻接判定、线族传播用 `===` 精确比较；
  * 仅外部来源（快照反序列化）引入浮点误差处，用 EPS(1e-9) 与 toFixed(6) 容差兜底。
  */
+import { RUNTIME_DEFAULTS, runtime } from "./runtimeConfig";
 
 /** 二维坐标点(归一化比例坐标)
  * @category 几何
@@ -66,18 +67,18 @@ export const AXIS = { H: "H", V: "V" } as const;
  */
 export type Axis = (typeof AXIS)[keyof typeof AXIS];
 
-/** 区域最小宽度(归一化比例)，分割与拖拽都不得低于此值
+/** 区域最小宽度(归一化比例)默认值；运行时经 configureRuntime 调整，分割/拖拽实际读 runtime()
  * @category 几何
  */
-export const MIN_AREA_W = 0.06;
-/** 区域最小高度(归一化比例)
+export const MIN_AREA_W = RUNTIME_DEFAULTS.minAreaW;
+/** 区域最小高度(归一化比例)默认值；运行时经 configureRuntime 调整
  * @category 几何
  */
-export const MIN_AREA_H = 0.06;
-/** 分界线命中容差(归一化比例)，指针距线段小于该值视为命中
+export const MIN_AREA_H = RUNTIME_DEFAULTS.minAreaH;
+/** 分界线命中容差(归一化比例)默认值；运行时经 configureRuntime 调整
  * @category 几何
  */
-export const EDGE_TOLERANCE = 0.005;
+export const EDGE_TOLERANCE = RUNTIME_DEFAULTS.hitTolerance;
 /** 比例空间浮点容差(外部来源/反序列化引入的误差) */
 const EPS = 1e-9;
 
@@ -228,15 +229,16 @@ export function deriveEdges(s: Screen): Seg[] {
  *  @param s 目标屏幕
  *  @param x 指针 x(归一化比例)
  *  @param y 指针 y(归一化比例)
- *  @param tol 命中容差(默认 EDGE_TOLERANCE)
+ *  @param tol 命中容差(缺省取 runtime().hitTolerance，出厂值 EDGE_TOLERANCE)
  *  @returns 命中的线段及其方向；无命中返回 null
  * @category 几何
  */
-export function findEdgeAtPos(s: Screen, x: number, y: number, tol = EDGE_TOLERANCE): EdgeHit | null {
+export function findEdgeAtPos(s: Screen, x: number, y: number, tol?: number): EdgeHit | null {
+  const t = tol ?? runtime().hitTolerance;
   let best: Seg | null = null, bestDist = Infinity;
   for (const seg of deriveEdges(s)) {
     const d = distToSeg(x, y, seg.v1.x, seg.v1.y, seg.v2.x, seg.v2.y);
-    if (d <= tol && d <= bestDist) { bestDist = d; best = seg; }
+    if (d <= t && d <= bestDist) { bestDist = d; best = seg; }
   }
   return best ? { seg: best, dir: best.v1.x === best.v2.x ? AXIS.V : AXIS.H } : null;
 }
@@ -281,7 +283,8 @@ export function isBoundaryAdjacent(_s: Screen, a: Area, b: Area): boolean {
 export function splitCoord(area: Area, dir: Axis, fac: number): number | null {
   const r = area.rect;
   const size = dir === AXIS.V ? r.width : r.height;
-  const min = dir === AXIS.V ? MIN_AREA_W : MIN_AREA_H;
+  const rt = runtime();
+  const min = dir === AXIS.V ? rt.minAreaW : rt.minAreaH;
   if (size <= 2 * min) return null;
 
   const base = dir === AXIS.V ? r.xmin : r.ymin;

@@ -113,6 +113,9 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
   const isMax = maximizedId != null;
 
   const wrapRef = useRef<HTMLDivElement>(null);
+  /** 坐标基准 = .tl-stage(舞台内缩 outerGap 后的实际铺排盒)。
+   *  区域百分比定位挂在此元素上，故指针换算也须量它 —— 否则 outerGap>0 时错位。 */
+  const stageRef = useRef<HTMLDivElement>(null);
   const [hotIds, setHotIds] = useState<number[]>([]);
   const [hoverEdgeId, setHoverEdgeId] = useState<number | null>(null);
   const [hoverCorner, setHoverCorner] = useState<string | null>(null);
@@ -130,11 +133,12 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
     return new Set([...G.connectedSegs(screen, seg)].map((x) => x.id));
   }, [hoverEdgeId, segs, screen]);
 
-  /** 屏幕像素 → 归一化比例(x 向右、y 向上)。
+  /** 屏幕像素 → 归一化比例(x 向右、y 向上)。基准是 .tl-stage(区域铺排盒)，
+   *  与区域百分比定位同一坐标系；outerGap 内缩已含在 stage 矩形里。
    *  容器不可量测(0 宽高，如 display:none 祖先或未布局)时返回 null——
    *  此时换算会产生 Infinity/NaN，一旦入库会被快照链路静默放大成数据丢失 */
   const ptToMath = (e: { clientX: number; clientY: number }) => {
-    const el = wrapRef.current;
+    const el = stageRef.current;
     if (!el) return null;
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return null;
@@ -275,7 +279,7 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
   return (
     <div className="tl-stage-wrap" ref={wrapRef} data-positioning={positioning}
          style={{ ...configToCssVars(theme, { partial: true }), ...style }}>
-      <div className="tl-stage">
+      <div className="tl-stage" ref={stageRef}>
         {/* 区域 */}
         {screen.areas.map((a) => {
           const b = boxPct(G.areaRect(screen, a));
@@ -328,8 +332,8 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
           return (
             <div key={e.id} className={`tl-asplit${hoverFamily.has(e.id) ? " tl-asplit-hot" : ""}`} data-vertical={String(vert)}
                  style={vert
-                   ? { left: `calc(${pct(v.x)} - 3px)`, top: pct(1 - Math.max(v.y, w.y)), width: 6, height: pct(Math.abs(w.y - v.y)) }
-                   : { left: `calc(${pct(Math.min(v.x, w.x))} - 3px)`, top: `calc(${pct(1 - v.y)} - 3px)`, width: pct(Math.abs(w.x - v.x)), height: 6 }}
+                   ? { left: `calc(${pct(v.x)} - (var(--tl-splitter, 6px) / 2))`, top: pct(1 - Math.max(v.y, w.y)), width: "var(--tl-splitter, 6px)", height: pct(Math.abs(w.y - v.y)) }
+                   : { left: `calc(${pct(Math.min(v.x, w.x))} - (var(--tl-splitter, 6px) / 2))`, top: `calc(${pct(1 - v.y)} - (var(--tl-splitter, 6px) / 2))`, width: pct(Math.abs(w.x - v.x)), height: "var(--tl-splitter, 6px)" }}
                  onMouseEnter={() => setHoverEdgeId(e.id)}
                  onMouseLeave={() => setHoverEdgeId(null)}
                  onMouseDown={(ev) => {

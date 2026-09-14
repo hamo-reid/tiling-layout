@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import { configToCssVars } from "./theme";
 import type { LayoutConfig } from "./theme";
+import { configureRuntime } from "./runtimeConfig";
 
 /** LayoutProvider 的 props
  * @category 渲染与主题
@@ -39,6 +40,9 @@ export function LayoutProvider({ config, children }: LayoutProviderProps) {
       else root.setAttribute("data-theme", prev);
     };
   }, [config?.colorMode]);
+  // 行为参数(interaction):全局单例,应用到几何层/状态机。卸载还原——副作用可逆,
+  // 与 colorMode 同纪律;多 Provider 按 effect 栈先后还原。视觉类键仍走 CSS 变量。
+  useEffect(() => configureRuntime(config?.interaction), [config?.interaction]);
   return (
     <div style={varStyle}>
       {children}

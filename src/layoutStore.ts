@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as G from "./geometry";
+import { runtime } from "./runtimeConfig";
 import { buildInitialScreen } from "./screen";
 import { cloneAreaState, moveAreaState, removeAreaStates, swapAreaState } from "./areaStore";
 import { getContentTitle } from "./registry";
@@ -32,7 +33,7 @@ export interface DockState {
   targetId: number | null;
   target: DockTarget;
   factorDock: number;   // 槽占目标该维的比例
-  canClose: boolean;    // 源区能否被邻居吞并闭合(否则四边停靠不可行)
+  canClose: boolean;    // 四边停靠是否可行:源区可被"非目标"邻居吞并,或与目标共享整边(并集重排)
 }
 /** 拖拽分界线改大小的手势中间态
  * @category 状态机与门面
@@ -160,10 +161,11 @@ function retypedAreas(s: G.Screen, changes: Map<number, string>): G.Area[] {
   });
 }
 
-/** 停靠槽占比吸附：靠近 1/2 → 1/2，否则对齐到常用分格 */
+/** 停靠槽占比吸附：靠近常用分格即对齐(网格经 configureRuntime 可调) */
 function snapFactor(v: number): number {
-  const grid = [0.25, 0.33, 0.5, 0.66, 0.75];
-  let best = grid[0], bd = Math.abs(v - best);
+  const grid = runtime().dockSnap;
+  let best = grid[0] ?? v;
+  let bd = Math.abs(v - best);
   for (const t of grid) { const d = Math.abs(v - t); if (d < bd) { bd = d; best = t; } }
   return best;
 }
@@ -306,7 +308,7 @@ export const useLayout = create<LayoutStore>((set, get) => {
       //   过早锁定会错定位；等价于按初始移出方向分片。
       let src = areaById(st.srcId);
       if (!src) {
-        if (Math.hypot(x - st.cornerStart.x, y - st.cornerStart.y) < 0.01) return;
+        if (Math.hypot(x - st.cornerStart.x, y - st.cornerStart.y) < runtime().cornerArm) return;
         const first = G.findAreaAtXY(s, x, y);
         if (!first) return;
         src = first;
@@ -433,9 +435,10 @@ export const useLayout = create<LayoutStore>((set, get) => {
       const r = G.areaRect(s, cur);
       const fx = (x - r.xmin) / r.width;
       const fy = (y - r.ymin) / r.height;
-      // 5 位停靠热区
+      // 5 位停靠热区(中心半宽经 configureRuntime 可调)
+      const dc = runtime().dockCenter;
       let target: DockTarget;
-      if (fx >= 0.25 && fx <= 0.75 && fy >= 0.25 && fy <= 0.75) {
+      if (fx >= dc && fx <= 1 - dc && fy >= dc && fy <= 1 - dc) {
         target = "center";
       } else {
         const m = Math.min(fx, 1 - fx, fy, 1 - fy);
@@ -448,8 +451,11 @@ export const useLayout = create<LayoutStore>((set, get) => {
         : target === "top" ? 1 - fy
         : 0.4;
       const factorDock = target === "center" ? 0.4 : snapFactor(raw);
-      // 源区能否被邻居吞并闭合(否则四边停靠不可行)
-      const canClose = target === "center" || s.areas.some((nb) => nb !== cur && G.findSharedEdge(s, src, nb));
+      // 四边停靠可行性:源区可被"非目标"邻居吞并闭合,或源区与目标共享整边
+      // (此时并集是矩形,可在 dockUp 里把并集重排为两块,无需第三方吞并)。
+      const canClose = target === "center"
+        || G.findSharedEdge(s, src, cur)
+        || s.areas.some((nb) => nb !== cur && G.findSharedEdge(s, src, nb));
       const finalTarget: DockTarget = canClose ? target : "none";
       set({ dock: { ...dk, targetId: cur.id, target: finalTarget, factorDock, canClose } });
     },
@@ -474,6 +480,50 @@ export const useLayout = create<LayoutStore>((set, get) => {
           retype.set(src.id, tgtT).set(tgt.id, srcT);
           status = `已交换「${name(srcT)}」与「${name(tgtT)}」内容。`;
           mutated = true;
+        } else if (
+          // 源区仅与目标共享整边(无第三方邻居可吞并源区):并集是矩形,直接重排为两块。
+          G.findSharedEdge(s, src, tgt)
+          && !s.areas.some((nb) => nb !== src && nb !== tgt && G.findSharedEdge(s, src, nb))
+        ) {
+          const R = G.rect(
+            Math.min(src.rect.xmin, tgt.rect.xmin),
+            Math.min(src.rect.ymin, tgt.rect.ymin),
+            Math.max(src.rect.xmax, tgt.rect.xmax),
+            Math.max(src.rect.ymax, tgt.rect.ymax),
+          );
+          const f = Math.min(1, Math.max(0, dk.factorDock));
+          let slotR: G.Rect;
+          let otherR: G.Rect;
+          if (dk.target === "left") {
+            const cut = R.xmin + R.width * f;
+            slotR = G.rect(R.xmin, R.ymin, cut, R.ymax);
+            otherR = G.rect(cut, R.ymin, R.xmax, R.ymax);
+          } else if (dk.target === "right") {
+            const cut = R.xmax - R.width * f;
+            slotR = G.rect(cut, R.ymin, R.xmax, R.ymax);
+            otherR = G.rect(R.xmin, R.ymin, cut, R.ymax);
+          } else if (dk.target === "bottom") {
+            const cut = R.ymin + R.height * f;
+            slotR = G.rect(R.xmin, R.ymin, R.xmax, cut);
+            otherR = G.rect(R.xmin, cut, R.xmax, R.ymax);
+          } else { // top
+            const cut = R.ymax - R.height * f;
+            slotR = G.rect(R.xmin, cut, R.xmax, R.ymax);
+            otherR = G.rect(R.xmin, R.ymin, R.xmax, cut);
+          }
+          // 尺寸下限:两半任一低于最小宽/高即放弃(与分裂同一约束)
+          const rt = runtime();
+          const fits = slotR.width >= rt.minAreaW && otherR.width >= rt.minAreaW
+            && slotR.height >= rt.minAreaH && otherR.height >= rt.minAreaH;
+          if (!fits) {
+            status = "目标区域过小，无法停靠。";
+          } else {
+            // 两区原位改尺寸:源内容落到停靠槽,目标内容落到另一块;不增删区域/不迁移状态。
+            src.rect = slotR;
+            tgt.rect = otherR;
+            mutated = true;
+            status = `已停靠「${name(src.contentType)}」到目标${sideLabel(dk.target)}。`;
+          }
         } else {
           // 四边停靠：目标内分裂出槽承载拖区内容；源区由邻居吞并闭合
           const axis = (dk.target === "left" || dk.target === "right") ? G.AXIS.V : G.AXIS.H;
@@ -534,12 +584,13 @@ export const useLayout = create<LayoutStore>((set, get) => {
       // 自身近边+MIN，max 侧对称。只看与命中段区间完全贴齐的成员会漏掉横跨
       // 整线的对侧矩形(如全高区域)——把它拖破 MIN 甚至负宽(几何反转)。
       const adj: { min?: number; max?: number }[] = [];
+      const rt = runtime();
       for (const { area, side } of moved) {
         const r = area.rect;
         if (side === "min") {
-          adj.push(dir === G.AXIS.V ? { min: r.xmin + G.MIN_AREA_W } : { min: r.ymin + G.MIN_AREA_H });
+          adj.push(dir === G.AXIS.V ? { min: r.xmin + rt.minAreaW } : { min: r.ymin + rt.minAreaH });
         } else {
-          adj.push(dir === G.AXIS.V ? { max: r.xmax - G.MIN_AREA_W } : { max: r.ymax - G.MIN_AREA_H });
+          adj.push(dir === G.AXIS.V ? { max: r.xmax - rt.minAreaW } : { max: r.ymax - rt.minAreaH });
         }
       }
       set({
