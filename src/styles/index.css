@@ -97,13 +97,16 @@
     z-index: 5;
   }
   .tl-asplit[data-vertical="true"] { cursor: ew-resize; }
-  /* 命中区(--tl-splitter 带宽)与视觉线(--tl-splitter-line 线宽)解耦:
-     热区可宽便于抓取,中央细线保持纤细;hover 只高亮这条细线。 */
+  /* 视觉线:命中带(--tl-splitter)中央的细线,线宽独立(--tl-splitter-line)。
+     命中区可宽、线可细 —— 二者解耦,互不牵动。
+     居中用 50%/50% + translate(而非 inset:0;margin:auto):后者在线宽 > 带宽时
+     属于过约束,auto 边距归零 → 线会右/下溢出偏移。 */
   .tl-asplit::after {
     content: "";
     position: absolute;
-    inset: 0;
-    margin: auto;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     background: transparent;
     transition: background var(--tl-motion-fast, 120ms) ease;
   }
