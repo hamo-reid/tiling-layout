@@ -4,6 +4,9 @@
   "description": "网格分割布局的 React 库：分割/合并/停靠/调大小 + 纯数据管理层",
   "license": "MIT",
   "author": "Hamo <190395489@qq.com>",
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": [
     "react",
     "layout",
@@ -43,13 +46,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/copy-dcts.mjs",
+    "build:demo": "vite build --config vite.demo.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "docs": "npm --prefix docs run build",
     "docs:start": "npm --prefix docs run start",
-    "prepublishOnly": "npm run typecheck && npm run build && npm test"
+    "prepublishOnly": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "peerDependencies": {
     "react": ">=18",
@@ -57,16 +62,20 @@
     "zustand": ">=4"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^6.10.0",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "jsdom": "^25.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.6.3",
+    "typescript-eslint": "^8.70.0",
     "vite": "^5.4.11",
     "vite-plugin-dts": "^4.3.0",
     "vitest": "^2.1.8",

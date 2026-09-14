@@ -185,9 +185,14 @@ export function Content({ type, areaId }: { type: string; areaId: number }) {
     // defaults(hasAreaState 守卫保证不覆盖已有槽位)
     if (def?.defaults && !hasAreaState(areaId, type)) setAreaState(areaId, type, def.defaults);
   }, [type, areaId, def]);
-  // ref 回调保持稳定：挂载/卸载只由 DOM 生命周期驱动，不随 type 变化 detach/attach
+  // ref 回调保持稳定：挂载/卸载只由 DOM 生命周期驱动，不随 type 变化 detach/attach。
+  // 最新信息在 layout effect 里刷新(而非渲染期写 ref，遵守 react-hooks/refs)；
+  // ref 回调仅挂载/卸载时执行，那时 infoRef 已是当次提交的正确值(areaId 恒定,首次挂载
+  // 用 useRef 初值亦正确)。
   const infoRef = useRef({ areaId, contentType: type });
-  infoRef.current = { areaId, contentType: type };
+  useLayoutEffect(() => {
+    infoRef.current = { areaId, contentType: type };
+  });
   const elRef = useRef<HTMLElement | null>(null);
   const registerRef = useCallback((el: HTMLElement | null) => {
     elRef.current = el;

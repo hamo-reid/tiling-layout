@@ -165,7 +165,6 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
     if (useWorkspaces.getState().activeId !== "layout-1") return;
     if (!isPristineScreen()) return;
     installInitialLayout(initialLayout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialLayout]);
 
   // 角标按唯一坐标去重并记录共享块(区域矩形四角)

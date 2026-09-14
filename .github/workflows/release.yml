@@ -15,8 +15,8 @@ jobs:
       contents: write # 建 GitHub Release
       id-token: write # npm provenance 的 OIDC 签名
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24 # 自带 npm 11.x;Trusted Publishing(OIDC)要求 npm ≥ 11.5
           cache: npm
@@ -33,6 +33,6 @@ jobs:
       # OIDC 免密发布(Trusted Publishing):权限来自 id-token: write + npm 包设置页的绑定
       - run: npm publish --provenance --access public # scoped 包默认 restricted,必须显式公开
       - name: 建 GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true

@@ -19,8 +19,8 @@ jobs:
     name: 构建文档站
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           # 根目录与 docs/ 各有一份 lockfile，都要纳入缓存键
@@ -36,7 +36,7 @@ jobs:
       - run: npm --prefix docs run build # onBrokenLinks/onBrokenMarkdownLinks 均为 throw，构建通过即死链体检通过
       # 仅 main 的 push 需要部署产物；PR 构建只做验证
       - if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/build
 
@@ -54,4 +54,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
