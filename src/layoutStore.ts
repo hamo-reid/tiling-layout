@@ -2,12 +2,15 @@ import { create } from "zustand";
 import * as G from "./geometry";
 import { runtime } from "./runtimeConfig";
 import { buildInitialScreen } from "./screen";
-import { cloneAreaState, moveAreaState, removeAreaStates, swapAreaState } from "./areaStore";
 import { getContentTitle } from "./registry";
 import { applySnapshot, collectSnapshot, migrateSnapshot } from "./layoutData";
+import { retypedAreas } from "./store/shared";
+import { createCornerActions } from "./store/corner";
+import { createDockActions } from "./store/dock";
+import { createResizeActions } from "./store/resize";
 
 /**
- * layoutStore — 全局状态机。
+ * layoutStore — 全局状态机(组装层)。
  *
  * 手势模式：
  *   - mode 'corner'   : 角标手势。由 ctrl + 落在哪分派
@@ -15,8 +18,10 @@ import { applySnapshot, collectSnapshot, migrateSnapshot } from "./layoutData";
  *   - mode 'resizing' : 拖分界线调整大小（连通线族平移、矩形保持）
  *   - mode 'docking'  : 拖区域停靠（5 位热区：中心交换 / 四边分裂停靠）
  *
- * 由 LayoutViewDom 把 DOM 事件换算成数学坐标(x,y)后调用这些 action；几何用 screen 引用
- * 直接 mutate 后浅拷贝顶层触发 React 重渲。
+ * 状态字段 / 快照历史 / 恢复 / 最大化 / 取消 在本文件；三个手势域拆到
+ * `store/corner|dock|resize.ts`(工厂函数接收 get/set,经 store/shared 复用辅助)。
+ * 由 LayoutViewDom 把 DOM 事件换算成数学坐标(x,y)后调用这些 action；几何用 screen
+ * 引用直接 mutate 后浅拷贝顶层触发 React 重渲。
  */
 
 type Vec2 = G.Vec2; // 与几何层共用同一坐标点类型，避免重复定义漂移
@@ -146,532 +151,105 @@ export interface LayoutStore {
   cancel: () => void;
 }
 
-const name = (t: string | undefined) => getContentTitle(t ?? "general");
-
-/** 内容类型变化不可变落地：按 (areaId → contentType) 生成新 Area 对象，原对象引用不变，
- *  细粒度 selector(按 contentType/对象引用订阅)不会漏更新。split/join 等几何变异不受影响。 */
-function retypedAreas(s: G.Screen, changes: Map<number, string>): G.Area[] {
-  if (!changes.size) return s.areas;
-  return s.areas.map((a) => {
-    const t = changes.get(a.id);
-    return t === undefined || t === a.contentType ? a : { ...a, contentType: t };
-  });
-}
-
-/** 停靠槽占比吸附：靠近常用分格即对齐(网格经 configureRuntime 可调) */
-function snapFactor(v: number): number {
-  const grid = runtime().dockSnap;
-  let best = grid[0] ?? v;
-  let bd = Math.abs(v - best);
-  for (const t of grid) { const d = Math.abs(v - t); if (d < bd) { bd = d; best = t; } }
-  return best;
-}
-function sideLabel(t: DockTarget): string {
-  return t === "left" ? "左侧" : t === "right" ? "右侧" : t === "top" ? "上方" : "下方";
-}
-
 /** 全局布局状态机 store：订阅交互态/快照历史，派发手势 action(成员见 LayoutStore)。
  *  @category 状态机与门面
  */
-export const useLayout = create<LayoutStore>((set, get) => {
-  const areaById = (id: number | null) => id == null ? null : get().screen.areas.find((a) => a.id === id) ?? null;
+export const useLayout = create<LayoutStore>((set, get) => ({
+  screen: buildInitialScreen(),
+  mode: "idle",
+  status: "",
+  cornerStart: { x: 0, y: 0 },
+  lastPt: { x: 0, y: 0 },
+  srcId: null,
+  hoverTId: null,
+  splitDir: null,
+  splitLine: 0,
+  snapped: false,
+  ctrl: false,
+  resize: null,
+  dock: null,
+  maximizedId: null,
+  past: [],
+  future: [],
 
-  /** 由 splitLine 反算 factor(0..1)，供 split() 用 */
-  const factorFromLine = (src: G.Area, dir: G.Axis, line: number): number => {
-    const r = G.areaRect(get().screen, src);
-    const base = dir === G.AXIS.H ? r.ymin : r.xmin;
-    const size = dir === G.AXIS.H ? r.height : r.width;
-    return Math.max(0, Math.min(1, (line - base) / size));
-  };
+  commitHistory: () => {
+    const past = [...get().past, JSON.stringify(collectSnapshot(get().screen))].slice(-runtime().historyMax);
+    set({ past, future: [] });
+  },
+  restore: (snap) => {
+    const normalized = migrateSnapshot(snap);      // 结构校验+归一
+    const s = applySnapshot(normalized);            // 重建 screen + 同步 areaStore/sceneStore
+    // 清空全部手势残留：restore 可能发生在任意时刻(切换/undo/导入)，
+    // 残留的 resize/dock 上下文持有已失效的 Area 引用，继续手势会写坏新布局
+    set({
+      screen: { ...s },
+      mode: "idle",
+      maximizedId: null,
+      srcId: null, hoverTId: null, splitDir: null, splitLine: 0, snapped: false,
+      resize: null, dock: null,
+    });
+  },
 
-  return {
-    screen: buildInitialScreen(),
-    mode: "idle",
-    status: "",
-    cornerStart: { x: 0, y: 0 },
-    lastPt: { x: 0, y: 0 },
-    srcId: null,
-    hoverTId: null,
-    splitDir: null,
-    splitLine: 0,
-    snapped: false,
-    ctrl: false,
-    resize: null,
-    dock: null,
-    maximizedId: null,
-    past: [],
-    future: [],
+  setAreaContent: (areaId, type) => {
+    const s = get().screen;
+    const a = s.areas.find((x) => x.id === areaId);
+    if (!a || a.contentType === type) return;     // 区域不存在 / 类型未变 → no-op，不进历史栈
+    get().commitHistory();                         // 先打快照 → undo 一步回到切换前
+    set({
+      screen: { ...s, areas: retypedAreas(s, new Map([[areaId, type]])) },
+      status: `已切换为「${getContentTitle(type)}」`,
+    });                                            // layoutBus 经 store 订阅+指纹自动感知
+  },
+  undo: () => {
+    const st = get();
+    if (!st.past.length) return;
+    const future = [...st.future, JSON.stringify(collectSnapshot(st.screen))];
+    st.restore(JSON.parse(st.past[st.past.length - 1]));
+    set({ past: st.past.slice(0, -1), future, mode: "idle" });
+  },
+  redo: () => {
+    const st = get();
+    if (!st.future.length) return;
+    const past = [...st.past, JSON.stringify(collectSnapshot(st.screen))];
+    st.restore(JSON.parse(st.future[st.future.length - 1]));
+    set({ past, future: st.future.slice(0, -1), mode: "idle" });
+  },
 
-    commitHistory: () => {
-      const past = [...get().past, JSON.stringify(collectSnapshot(get().screen))].slice(-runtime().historyMax);
-      set({ past, future: [] });
-    },
-    restore: (snap) => {
-      const normalized = migrateSnapshot(snap);      // 结构校验+归一
-      const s = applySnapshot(normalized);            // 重建 screen + 同步 areaStore/sceneStore
-      // 清空全部手势残留：restore 可能发生在任意时刻(切换/undo/导入)，
-      // 残留的 resize/dock 上下文持有已失效的 Area 引用，继续手势会写坏新布局
-      set({
-        screen: { ...s },
-        mode: "idle",
-        maximizedId: null,
-        srcId: null, hoverTId: null, splitDir: null, splitLine: 0, snapped: false,
-        resize: null, dock: null,
-      });
-    },
+  setStatus: (status) => set({ status }),
+  setCtrl: (ctrl) => set({ ctrl }),
 
-    setAreaContent: (areaId, type) => {
-      const s = get().screen;
-      const a = s.areas.find((x) => x.id === areaId);
-      if (!a || a.contentType === type) return;     // 区域不存在 / 类型未变 → no-op，不进历史栈
-      get().commitHistory();                         // 先打快照 → undo 一步回到切换前
-      set({
-        screen: { ...s, areas: retypedAreas(s, new Map([[areaId, type]])) },
-        status: `已切换为「${getContentTitle(type)}」`,
-      });                                            // layoutBus 经 store 订阅+指纹自动感知
-    },
-    undo: () => {
-      const st = get();
-      if (!st.past.length) return;
-      const future = [...st.future, JSON.stringify(collectSnapshot(st.screen))];
-      st.restore(JSON.parse(st.past[st.past.length - 1]));
-      set({ past: st.past.slice(0, -1), future, mode: "idle" });
-    },
-    redo: () => {
-      const st = get();
-      if (!st.future.length) return;
-      const past = [...st.past, JSON.stringify(collectSnapshot(st.screen))];
-      st.restore(JSON.parse(st.future[st.future.length - 1]));
-      set({ past, future: st.future.slice(0, -1), mode: "idle" });
-    },
+  toggleMaximize: (areaId) => {
+    const st = get();
+    const maximizedId = st.maximizedId === areaId ? null : areaId;
+    set({ maximizedId, mode: "idle", srcId: null, hoverTId: null, splitDir: null, snapped: false, resize: null, dock: null });
+  },
+  exitMaximize: () => {
+    set({ maximizedId: null, mode: "idle", srcId: null, hoverTId: null, splitDir: null, snapped: false, resize: null, dock: null });
+  },
 
-    setStatus: (status) => set({ status }),
-    setCtrl: (ctrl) => set({ ctrl }),
+  // 三个手势域(角标 / 停靠 / 分界线)由各自模块的工厂装配，共享 get/set 与 store/shared 辅助
+  ...createCornerActions(get, set),
+  ...createDockActions(get, set),
+  ...createResizeActions(get, set),
 
-    toggleSplitDir: () => {
-      const st = get();
-      // 仅角标手势中有效(idle/docking/resizing 下 Tab 交还宿主页面，不劫持键盘导航)
-      if (st.mode !== "corner" || st.hoverTId != null || !st.splitDir || st.srcId == null) return;
-      const src = areaById(st.srcId);
-      if (!src) return;
-      const nd = st.splitDir === G.AXIS.H ? G.AXIS.V : G.AXIS.H;
-      // 换向必须重算分割线：splitLine 语义随轴变化(x↔y)，沿用旧值会让
-      // cornerUp 用错轴的坐标落刀(factorFromLine 会拿 x 值当 y 比例解读)
-      const r = G.areaRect(st.screen, src);
-      let line = nd === G.AXIS.H
-        ? Math.max(r.ymin, Math.min(r.ymax, st.lastPt.y))
-        : Math.max(r.xmin, Math.min(r.xmax, st.lastPt.x));
-      let snapped = false;
-      if (st.ctrl) {
-        const base = nd === G.AXIS.H ? r.ymin : r.xmin;
-        const size = nd === G.AXIS.H ? r.height : r.width;
-        const snap = G.snapCoord(st.screen, src, line - base, base, nd, size, 0);
-        if (snap !== null) { line = snap; snapped = true; }
-      }
-      set({ splitDir: nd, splitLine: line, snapped });
-    },
-
-    toggleMaximize: (areaId) => {
-      const st = get();
-      const maximizedId = st.maximizedId === areaId ? null : areaId;
-      set({ maximizedId, mode: "idle", srcId: null, hoverTId: null, splitDir: null, snapped: false, resize: null, dock: null });
-    },
-    exitMaximize: () => {
-      set({ maximizedId: null, mode: "idle", srcId: null, hoverTId: null, splitDir: null, snapped: false, resize: null, dock: null });
-    },
-
-    beginCorner: (_areaId, start, ctrl) => {
-      // 角点不绑定单一区域：拖向哪块就在拖拽中动态确定
-      const s = get().screen;
-      set({
-        mode: "corner",
-        srcId: null,
-        cornerStart: start,
-        lastPt: start,
-        ctrl,
-        hoverTId: null,
-        splitDir: null,
-        splitLine: 0,
-        snapped: false,
-        screen: { ...s },
-      });
-    },
-
-    cornerMove: (x, y) => {
-      const st = get();
-      const s = st.screen;
-      // ★ 动态锁定操作对象：鼠标拖入的第一个区域。
-      //   必须先拖离角锚点一段距离再锁定——角点位于共享边界上(多区域重叠命中)，
-      //   过早锁定会错定位；等价于按初始移出方向分片。
-      let src = areaById(st.srcId);
-      if (!src) {
-        if (Math.hypot(x - st.cornerStart.x, y - st.cornerStart.y) < runtime().cornerArm) return;
-        const first = G.findAreaAtXY(s, x, y);
-        if (!first) return;
-        src = first;
-        set({ srcId: first.id });
-      }
-      set({ lastPt: { x, y } });   // 记录最新指针位置(toggleSplitDir 换向重算分割线用)
-      const cur = G.findAreaAtXY(s, x, y);
-      const inSrc = cur === src;
-      const strict = cur && !inSrc && G.findSharedEdge(s, src, cur);
-      const loose = cur && !inSrc && G.isBoundaryAdjacent(s, src, cur);
-      const valid = st.ctrl ? loose : strict;
-
-      if (valid) {
-        set({ hoverTId: cur!.id, splitDir: null, screen: { ...s } });
-        return;
-      }
-
-      // split 路径：仍在源区(或空白)，或不可用的异区
-      set({ hoverTId: null });
-      if (!inSrc && cur) { set({ splitDir: null }); return; } // 撞到不可合并的区域 → 无手势
-
-      let dir = st.splitDir;
-      if (!dir) {
-        const dx = x - st.cornerStart.x, dy = y - st.cornerStart.y;
-        if (Math.abs(dx) + Math.abs(dy) > runtime().edgeArm) {
-          dir = Math.abs(dx) > Math.abs(dy) ? G.AXIS.V : G.AXIS.H;
-        }
-      }
-      if (!dir) { set({ splitDir: null }); return; }
-
-      const r = G.areaRect(s, src);
-      let line = dir === G.AXIS.H
-        ? Math.max(r.ymin, Math.min(r.ymax, y))
-        : Math.max(r.xmin, Math.min(r.xmax, x));
-      let snapped = false;
-      if (st.ctrl && dir) {
-        const base = dir === G.AXIS.H ? r.ymin : r.xmin;
-        const size = dir === G.AXIS.H ? r.height : r.width;
-        const snap = G.snapCoord(s, src, line - base, base, dir, size, 0);
-        if (snap !== null) { line = snap; snapped = true; }
-      }
-      set({ splitDir: dir, splitLine: line, snapped, screen: { ...s } });
-    },
-
-    cornerUp: () => {
-      const st = get();
-      const s = st.screen;
-      const pre = JSON.stringify(collectSnapshot(s)); // 操作前快照(实际生效才入栈)
-      const src = areaById(st.srcId);
-      const tgt = areaById(st.hoverTId);
-      let status: string;
-      const retype = new Map<number, string>(); // 内容类型变化(不可变落地)
-      let mutated = false;                       // 几何/内容实际变化才入历史(纯取消不污染 undo)
-
-      if (src && tgt && tgt !== src) {
-        if (st.ctrl) {
-          // 内容交换：contentType 互换 + 实例状态随同互换
-          const srcT = src.contentType, tgtT = tgt.contentType;
-          swapAreaState(src.id, tgt.id);
-          retype.set(src.id, tgtT).set(tgt.id, srcT);
-          status = `已交换「${name(srcT)}」与「${name(tgtT)}」内容。`;
-          mutated = true;
-        } else {
-          const keep = G.joinAreas(s, src, tgt); // 保留角落源区，吸收目标
-          if (keep) {
-            removeAreaStates([tgt.id]);          // 被吞块实例状态随内容丢弃
-            status = `已合并 → 「${name(keep.contentType)}」`;
-            mutated = true;
-          } else {
-            status = "无法合并：两区域需共享整条分界线。";
-          }
-        }
-      } else if (st.splitDir && src) {
-        const fac = factorFromLine(src, st.splitDir, st.splitLine);
-        const narea = G.split(s, src, st.splitDir, fac);
-        if (narea) {
-          cloneAreaState(src.id, narea.id); // 新生区域继承来源实例状态(clone)
-          mutated = true;
-        }
-        status = narea
-          ? `已分割「${name(src.contentType)}」→ 新区域「${name(narea.contentType)}」。新分界线可继续拖动。`
-          : "当前区域过小，无法分割。";
-      } else {
-        status = "已取消";
-      }
-
-      set({
-        mode: "idle",
-        status,
-        srcId: null,
-        hoverTId: null,
-        splitDir: null,
-        snapped: false,
-        past: mutated ? [...st.past, pre].slice(-runtime().historyMax) : st.past,
-        future: mutated ? [] : st.future,
-        screen: { ...s, areas: retypedAreas(s, retype) },
-      });
-    },
-
-    beginDock: (areaId, start) => {
-      const s = get().screen;
-      set({
-        mode: "docking",
-        dock: { srcId: areaId, start, targetId: null, target: "none", factorDock: 0.4, canClose: false },
-        status: "拖动区域到另一区域停靠 — 中心:交换 / 四边:分裂停靠 · Esc/右键 取消",
-        // 清角标手势残留(标签页切换手势/嵌套按下时防止脏状态串场)
-        srcId: null, hoverTId: null, splitDir: null, snapped: false,
-        screen: { ...s },
-      });
-    },
-
-    dockMove: (x, y) => {
-      const st = get();
-      const dk = st.dock;
-      if (!dk) return;
-      const s = st.screen;
-      const src = areaById(dk.srcId);
-      if (!src) { set({ dock: null }); return; }
-      const cur = G.findAreaAtXY(s, x, y);
-      if (!cur || cur.id === dk.srcId) {
-        set({ dock: { ...dk, targetId: null, target: "none" } });
-        return;
-      }
-      const r = G.areaRect(s, cur);
-      const fx = (x - r.xmin) / r.width;
-      const fy = (y - r.ymin) / r.height;
-      // 5 位停靠热区(中心半宽经 configureRuntime 可调)
-      const dc = runtime().dockCenter;
-      let target: DockTarget;
-      if (fx >= dc && fx <= 1 - dc && fy >= dc && fy <= 1 - dc) {
-        target = "center";
-      } else {
-        const m = Math.min(fx, 1 - fx, fy, 1 - fy);
-        target = m === (1 - fy) ? "top" : m === fy ? "bottom" : m === fx ? "left" : "right";
-      }
-      // 槽占比 + 吸附(简化)
-      const raw = target === "left" ? fx
-        : target === "right" ? 1 - fx
-        : target === "bottom" ? fy
-        : target === "top" ? 1 - fy
-        : 0.4;
-      const factorDock = target === "center" ? 0.4 : snapFactor(raw);
-      // 四边停靠可行性:源区可被"非目标"邻居吞并闭合,或源区与目标共享整边
-      // (此时并集是矩形,可在 dockUp 里把并集重排为两块,无需第三方吞并)。
-      const canClose = target === "center"
-        || G.findSharedEdge(s, src, cur)
-        || s.areas.some((nb) => nb !== cur && G.findSharedEdge(s, src, nb));
-      const finalTarget: DockTarget = canClose ? target : "none";
-      set({ dock: { ...dk, targetId: cur.id, target: finalTarget, factorDock, canClose } });
-    },
-
-    dockUp: () => {
-      const st = get();
-      const s = st.screen;
-      const pre = JSON.stringify(collectSnapshot(s)); // 操作前快照(实际生效才入栈)
-      const dk = st.dock;
-      let status: string;
-      const retype = new Map<number, string>(); // 内容类型变化(不可变落地)
-      let mutated = false;                       // 几何/内容实际变化才入历史
-      if (dk) {
-        const src = areaById(dk.srcId);
-        const tgt = areaById(dk.targetId);
-        if (!src || !tgt || tgt.id === dk.srcId || dk.target === "none") {
-          status = "已取消";
-        } else if (dk.target === "center") {
-          // 中心停靠=交换内容（Area 对象不可变替换）
-          const srcT = src.contentType, tgtT = tgt.contentType;
-          swapAreaState(src.id, tgt.id);
-          retype.set(src.id, tgtT).set(tgt.id, srcT);
-          status = `已交换「${name(srcT)}」与「${name(tgtT)}」内容。`;
-          mutated = true;
-        } else if (
-          // 源区仅与目标共享整边(无第三方邻居可吞并源区):并集是矩形,直接重排为两块。
-          G.findSharedEdge(s, src, tgt)
-          && !s.areas.some((nb) => nb !== src && nb !== tgt && G.findSharedEdge(s, src, nb))
-        ) {
-          const R = G.rect(
-            Math.min(src.rect.xmin, tgt.rect.xmin),
-            Math.min(src.rect.ymin, tgt.rect.ymin),
-            Math.max(src.rect.xmax, tgt.rect.xmax),
-            Math.max(src.rect.ymax, tgt.rect.ymax),
-          );
-          const f = Math.min(1, Math.max(0, dk.factorDock));
-          let slotR: G.Rect;
-          let otherR: G.Rect;
-          if (dk.target === "left") {
-            const cut = R.xmin + R.width * f;
-            slotR = G.rect(R.xmin, R.ymin, cut, R.ymax);
-            otherR = G.rect(cut, R.ymin, R.xmax, R.ymax);
-          } else if (dk.target === "right") {
-            const cut = R.xmax - R.width * f;
-            slotR = G.rect(cut, R.ymin, R.xmax, R.ymax);
-            otherR = G.rect(R.xmin, R.ymin, cut, R.ymax);
-          } else if (dk.target === "bottom") {
-            const cut = R.ymin + R.height * f;
-            slotR = G.rect(R.xmin, R.ymin, R.xmax, cut);
-            otherR = G.rect(R.xmin, cut, R.xmax, R.ymax);
-          } else { // top
-            const cut = R.ymax - R.height * f;
-            slotR = G.rect(R.xmin, cut, R.xmax, R.ymax);
-            otherR = G.rect(R.xmin, R.ymin, R.xmax, cut);
-          }
-          // 尺寸下限:两半任一低于最小宽/高即放弃(与分裂同一约束)
-          const rt = runtime();
-          const fits = slotR.width >= rt.minAreaW && otherR.width >= rt.minAreaW
-            && slotR.height >= rt.minAreaH && otherR.height >= rt.minAreaH;
-          if (!fits) {
-            status = "目标区域过小，无法停靠。";
-          } else {
-            // 两区原位改尺寸:源内容落到停靠槽,目标内容落到另一块;不增删区域/不迁移状态。
-            src.rect = slotR;
-            tgt.rect = otherR;
-            mutated = true;
-            status = `已停靠「${name(src.contentType)}」到目标${sideLabel(dk.target)}。`;
-          }
-        } else {
-          // 四边停靠：目标内分裂出槽承载拖区内容；源区由邻居吞并闭合
-          const axis = (dk.target === "left" || dk.target === "right") ? G.AXIS.V : G.AXIS.H;
-          const param = (dk.target === "left" || dk.target === "bottom") ? dk.factorDock : 1 - dk.factorDock;
-          const slot = G.split(s, tgt, axis, param);
-          if (!slot) {
-            status = "目标区域过小，无法停靠。";
-          } else {
-            const oldType = src.contentType;
-            const ar = G.areaRect(s, tgt), br = G.areaRect(s, slot);
-            // 识别停靠侧 = 槽；非槽保留目标原内容
-            const left = ar.xmin < br.xmin ? tgt : slot;
-            const bottom = ar.ymin < br.ymin ? tgt : slot;
-            const dockSide = dk.target === "left" ? left
-              : dk.target === "right" ? (left === tgt ? slot : tgt)
-              : dk.target === "bottom" ? bottom
-              : (bottom === tgt ? slot : tgt); // top
-            const other = dockSide === tgt ? slot : tgt;
-            // 拖区内容进槽(dockSide)；非槽侧(other)内容本就不变 → 无需赋值。
-            // retype 落地放在闭合成功分支，回滚路径不触碰任何 contentType。
-
-            // 移除源区：找共享整条边的邻居吞并(闭合)
-            let closed = false;
-            for (const nb of s.areas) {
-              if (nb === dockSide || nb === other) continue;
-              if (G.findSharedEdge(s, src, nb) && G.joinAreas(s, nb, src)) { closed = true; break; }
-            }
-            if (!closed) {
-              G.joinAreas(s, tgt, slot); // 回滚：槽并回目标，源区不动
-              status = "无法闭合源区位置，已取消停靠。";
-            } else {
-              retype.set(dockSide.id, oldType); // 拖区内容进槽
-              moveAreaState(src.id, dockSide.id); // 源内容进槽：实例状态随之转移到槽
-              status = `已停靠「${name(oldType)}」到目标${sideLabel(dk.target)}。`;
-              mutated = true;
-            }
-          }
-        }
-      } else {
-        status = "已取消";
-      }
-      set({
-        mode: "idle",
-        status,
-        dock: null,
-        past: mutated ? [...st.past, pre].slice(-runtime().historyMax) : st.past,
-        future: mutated ? [] : st.future,
-        screen: { ...s, areas: retypedAreas(s, retype) },
-      });
-    },
-
-    beginResize: (seg, m) => {
-      const s = get().screen;
-      const dir: G.Axis = seg.v1.x === seg.v2.x ? G.AXIS.V : G.AXIS.H;
-      const orig = dir === G.AXIS.V ? seg.v1.x : seg.v1.y;
-      const moved = G.edgeFamilyAreas(s, seg);
-      // 夹逼约束必须覆盖线族「全部」成员：min 侧矩形(内边触线)约束线不可越过
-      // 自身近边+MIN，max 侧对称。只看与命中段区间完全贴齐的成员会漏掉横跨
-      // 整线的对侧矩形(如全高区域)——把它拖破 MIN 甚至负宽(几何反转)。
-      const adj: { min?: number; max?: number }[] = [];
-      const rt = runtime();
-      for (const { area, side } of moved) {
-        const r = area.rect;
-        if (side === "min") {
-          adj.push(dir === G.AXIS.V ? { min: r.xmin + rt.minAreaW } : { min: r.ymin + rt.minAreaH });
-        } else {
-          adj.push(dir === G.AXIS.V ? { max: r.xmax - rt.minAreaW } : { max: r.ymax - rt.minAreaH });
-        }
-      }
-      set({
-        mode: "resizing",
-        resize: {
-          seg,
-          dir,
-          orig,
-          origPt: dir === G.AXIS.V ? m.x : m.y,
-          moved,
-          adj,
-          pre: JSON.stringify(collectSnapshot(s)),   // 拖拽前快照：endResize 实际位移才入栈
-          origRects: moved.map(({ area }) => ({ area, rect: area.rect })), // cancel 回滚依据
-          dragged: false,
-        },
-        status: "调整大小中 — Esc / 右键 取消",
-        // 清角标手势残留(防止脏状态串场)
-        srcId: null, hoverTId: null, splitDir: null, snapped: false,
-        screen: { ...s },
-      });
-    },
-
-    resizeMove: (x, y) => {
-      const st = get();
-      const r = st.resize;
-      if (!r) return;
-      const s = st.screen;
-      const curAxis = r.dir === G.AXIS.V ? x : y;
-      if (!Number.isFinite(curAxis)) return;   // 程序化调用兜底(DOM 桥已保证有限值)
-      let newV = r.orig + (curAxis - r.origPt);
-      let lo = -Infinity, hi = Infinity;
-      for (const c of r.adj) {
-        if (c.min !== undefined) lo = Math.max(lo, c.min);
-        if (c.max !== undefined) hi = Math.min(hi, c.max);
-      }
-      newV = Math.max(lo, Math.min(hi, newV));
-      // 仅「从未位移」时跳过写入(避免引用抖动)；已位移后指针精确回到起点也必须
-      // 写回 orig——否则几何停在最后一次位移位置，与指针目视位置不符
-      if (newV === r.orig && !r.dragged) return;
-      r.dragged = true;
-      for (const { area, side } of r.moved) {
-        // min 侧矩形以内边(xmax/ymax)触线，max 侧以 xmin/ymin 触线；一律走 withRect 保持派生字段
-        area.rect = side === "min"
-          ? G.withRect(area.rect, r.dir === G.AXIS.V ? { xmax: newV } : { ymax: newV })
-          : G.withRect(area.rect, r.dir === G.AXIS.V ? { xmin: newV } : { ymin: newV });
-      }
-      set({ screen: { ...s } });
-    },
-
-    endResize: () => {
-      const st = get();
-      const r = st.resize;
-      const s = st.screen;
-      // 实际发生位移才入历史栈(压入拖拽前快照)；纯点击分界线不产生 undo 条目
-      const dragged = r?.dragged ?? false;
-      set({
-        mode: "idle",
-        resize: null,
-        status: "就绪",
-        past: dragged ? [...st.past, r!.pre].slice(-runtime().historyMax) : st.past,
-        future: dragged ? [] : st.future,
-        screen: { ...s },
-      });
-    },
-
-    cancel: () => {
-      const st = get();
-      const s = st.screen;
-      const r = st.resize;
-      // resizing 的几何已被 resizeMove 原地改写：按拖拽前矩形引用表回滚，「已取消」名副其实
-      if (r) {
-        for (const { area, rect: rc } of r.origRects) area.rect = rc;
-      }
-      set({
-        mode: "idle",
-        status: "已取消",
-        srcId: null,
-        hoverTId: null,
-        splitDir: null,
-        snapped: false,
-        resize: null,
-        dock: null,
-        screen: { ...s },
-      });
-    },
-  };
-});
+  cancel: () => {
+    const st = get();
+    const s = st.screen;
+    const r = st.resize;
+    // resizing 的几何已被 resizeMove 原地改写：按拖拽前矩形引用表回滚，「已取消」名副其实
+    if (r) {
+      for (const { area, rect: rc } of r.origRects) area.rect = rc;
+    }
+    set({
+      mode: "idle",
+      status: "已取消",
+      srcId: null,
+      hoverTId: null,
+      splitDir: null,
+      snapped: false,
+      resize: null,
+      dock: null,
+      screen: { ...s },
+    });
+  },
+}));
