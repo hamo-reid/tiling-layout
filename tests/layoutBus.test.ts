@@ -91,3 +91,14 @@ describe("layoutBus 订阅回调", () => {
     un();
   });
 });
+
+describe("layoutBus.subscribe 别名", () => {
+  it("等价 onChange:可订阅、可取消", async () => {
+    let count = 0;
+    const un = layoutBus.subscribe(() => { count++; });
+    useScene.setState((s) => ({ mesh: { x: s.mesh.x + 1, rot: 0 } }));
+    await flushBus();
+    expect(count).toBeGreaterThan(0);
+    un();
+  });
+});

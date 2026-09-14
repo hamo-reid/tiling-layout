@@ -202,3 +202,24 @@ describe("workspaces 布局切换与删除", () => {
     expect(useWorkspaces.getState().list.length).toBe(1);
   });
 });
+
+describe("history 软失败:坏条目剔除而非留到 undo 崩", () => {
+  it("非字符串 / 坏 JSON / 非法快照被剔除,合法快照保留", () => {
+    const snap = JSON.stringify(collectSnapshot(buildInitialScreen()));
+    const payload = JSON.stringify({
+      v: 1,
+      list: [{ id: "a", name: "A" }],
+      data: {
+        a: {
+          snapshot: collectSnapshot(buildInitialScreen()),
+          history: { past: [snap, 123, "{bad json", '"not-a-snapshot"'], future: ["nope", snap] },
+        },
+      },
+      activeId: "a",
+    });
+    deserializeWorkspaces(payload);
+    const hist = useWorkspaces.getState().data.a!.history;
+    expect(hist.past).toHaveLength(1);
+    expect(hist.future).toHaveLength(1);
+  });
+});

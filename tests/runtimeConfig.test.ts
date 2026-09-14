@@ -78,4 +78,11 @@ describe("行为参数(runtimeConfig)", () => {
     r1();
     expect(runtime().dockCenter).toBe(0.25);
   });
+
+  it("无参调用:应用空覆盖并返回可还原函数", () => {
+    const restore = configureRuntime();
+    expect(typeof restore).toBe("function");
+    expect(runtime().dockCenter).toBe(0.25);
+    restore();
+  });
 });

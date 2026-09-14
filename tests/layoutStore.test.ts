@@ -570,3 +570,149 @@ describe("layoutStore setAreaContent", () => {
     expect(getAreaState(vp, "shader")).toEqual({ nodeCount: 5 });
   });
 });
+
+describe("停靠:并集重排各方向 / 回滚 / 取消", () => {
+  beforeEach(resetLayout);
+
+  const twoCols = () => {
+    const s = G.createScreen();
+    const a = G.addArea(s, G.rect(0, 0, 0.5, 1), "a");
+    const b = G.addArea(s, G.rect(0.5, 0, 1, 1), "b");
+    return { s, a, b };
+  };
+
+  it("并集重排:left/right/bottom/top 四方向均停靠且并集满铺", () => {
+    for (const target of ["left", "right", "bottom", "top"] as const) {
+      const { s, a, b } = twoCols();
+      useLayout.setState({
+        screen: s, mode: "docking", past: [], future: [],
+        dock: { srcId: a.id, start: { x: 0.25, y: 0.5 }, targetId: b.id, target, factorDock: 0.5, canClose: true },
+      });
+      useLayout.getState().dockUp();
+      const fin = useLayout.getState();
+      expect(fin.status).toContain("已停靠");
+      const sum = fin.screen.areas.reduce((acc, x) => acc + x.rect.width * x.rect.height, 0);
+      expect(sum).toBeCloseTo(1, 9);
+    }
+  });
+
+  it("并集重排:两半低于最小尺寸 → 放弃停靠", () => {
+    const { s, a, b } = twoCols();
+    const restore = configureRuntime({ minAreaW: 0.49 });
+    try {
+      useLayout.setState({
+        screen: s, mode: "docking", past: [], future: [],
+        dock: { srcId: a.id, start: { x: 0.25, y: 0.5 }, targetId: b.id, target: "left", factorDock: 0.4, canClose: true },
+      });
+      useLayout.getState().dockUp();
+      expect(useLayout.getState().status).toContain("过小");
+    } finally {
+      restore();
+    }
+  });
+
+  it("分裂停靠:right/bottom/top 方向成功闭合", () => {
+    const cases = [["right", 0.6, 0.5], ["bottom", 0.3, 0.2], ["top", 0.3, 0.8]] as const;
+    for (const [target, x, y] of cases) {
+      resetLayout();
+      const st = useLayout.getState();
+      st.beginDock(ids().outline, { x: 0.7, y: 0.8 });
+      st.dockMove(x, y);
+      expect(useLayout.getState().dock?.target).toBe(target);
+      useLayout.getState().dockUp();
+      expect(useLayout.getState().status).toContain("已停靠");
+    }
+  });
+
+  it("分裂停靠:目标过小(无法分裂)→ 取消", () => {
+    const s = G.createScreen();
+    const a = G.addArea(s, G.rect(0, 0, 0.5, 1), "a");
+    const b = G.addArea(s, G.rect(0.5, 0, 0.52, 0.3), "b"); // 窄且仅与 a 部分相邻
+    useLayout.setState({
+      screen: s, mode: "docking", past: [], future: [],
+      dock: { srcId: a.id, start: { x: 0, y: 0 }, targetId: b.id, target: "right", factorDock: 0.5, canClose: true },
+    });
+    useLayout.getState().dockUp();
+    expect(useLayout.getState().status).toContain("过小");
+  });
+
+  it("分裂停靠:无邻居可吞并源区 → 回滚取消", () => {
+    const s = G.createScreen();
+    const a = G.addArea(s, G.rect(0, 0, 0.5, 1), "a");     // 左全高
+    const b = G.addArea(s, G.rect(0.5, 0.5, 1, 1), "b");   // 右上
+    G.addArea(s, G.rect(0.5, 0, 1, 0.5), "c");             // 右下(a 与 b/c 都只部分相邻)
+    useLayout.setState({
+      screen: s, mode: "docking", past: [], future: [],
+      dock: { srcId: a.id, start: { x: 0.25, y: 0.5 }, targetId: b.id, target: "right", factorDock: 0.5, canClose: true },
+    });
+    const before = s.areas.length;
+    useLayout.getState().dockUp();
+    expect(useLayout.getState().status).toContain("无法闭合");
+    expect(useLayout.getState().screen.areas).toHaveLength(before);
+  });
+
+  it("dockUp:无会话 / target=none → 已取消", () => {
+    useLayout.setState({ dock: null });
+    useLayout.getState().dockUp();
+    expect(useLayout.getState().status).toBe("已取消");
+
+    const a = useLayout.getState().screen.areas[0]!;
+    useLayout.setState({
+      mode: "docking",
+      dock: { srcId: a.id, start: { x: 0, y: 0 }, targetId: null, target: "none", factorDock: 0.4, canClose: false },
+    });
+    useLayout.getState().dockUp();
+    expect(useLayout.getState().status).toBe("已取消");
+  });
+});
+
+describe("角标:换向 / 不可合并 / 过小 / 缺源", () => {
+  beforeEach(resetLayout);
+
+  it("H→V 换向且 Ctrl 吸附重算分割线", () => {
+    const st = useLayout.getState();
+    st.beginCorner(ids().editor, { x: 0.3, y: 0.5 }, true);
+    st.cornerMove(0.3, 0.3); // 纵向为主 → H
+    expect(useLayout.getState().splitDir).toBe(G.AXIS.H);
+    useLayout.getState().toggleSplitDir(); // → V(ctrl 吸附)
+    expect(useLayout.getState().splitDir).toBe(G.AXIS.V);
+    expect(useLayout.getState().snapped).toBe(true);
+  });
+
+  it("位移未超阈值 → 不产生分割方向", () => {
+    const st = useLayout.getState();
+    st.beginCorner(ids().editor, { x: 0.3, y: 0.5 }, false);
+    st.cornerMove(0.3005, 0.5005); // < edgeArm
+    expect(useLayout.getState().splitDir).toBeNull();
+  });
+
+  it("srcId 失效 → toggleSplitDir 为 no-op", () => {
+    useLayout.setState({ mode: "corner", srcId: 999, hoverTId: null, splitDir: G.AXIS.H });
+    useLayout.getState().toggleSplitDir();
+    expect(useLayout.getState().splitDir).toBe(G.AXIS.H);
+  });
+
+  it("仅部分相邻 → 无法合并", () => {
+    useLayout.setState({
+      mode: "corner", srcId: ids().editor, hoverTId: ids().outline, splitDir: null, ctrl: false, past: [], future: [],
+    });
+    useLayout.getState().cornerUp();
+    expect(useLayout.getState().status).toContain("无法合并");
+  });
+
+  it("区域过小 → 无法分割", () => {
+    const s = G.createScreen();
+    const tiny = G.addArea(s, G.rect(0, 0, 0.05, 1), "tiny");
+    useLayout.setState({
+      screen: s, mode: "corner", srcId: tiny.id, hoverTId: null,
+      splitDir: G.AXIS.V, splitLine: 0.02, ctrl: false, past: [], future: [],
+    });
+    useLayout.getState().cornerUp();
+    expect(useLayout.getState().status).toContain("无法分割");
+  });
+
+  it("setStatus 写状态栏文字", () => {
+    useLayout.getState().setStatus("hello");
+    expect(useLayout.getState().status).toBe("hello");
+  });
+});

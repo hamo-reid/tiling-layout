@@ -135,3 +135,14 @@ describe("serializeLayout 便捷序列化", () => {
     expect(parsed.areas).toHaveLength(3);
   });
 });
+
+describe("migrateSnapshot:几何非法 fail-closed", () => {
+  it("区域 rect 非数组 → 抛错", () => {
+    expect(() => migrateSnapshot({
+      v: 1,
+      areas: [{ id: 1, contentType: "x", rect: "nope" }],
+      areaStates: {},
+      shared: { x: 0, rot: 0 },
+    })).toThrow();
+  });
+});

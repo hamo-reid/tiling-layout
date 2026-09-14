@@ -26,6 +26,7 @@
   `layoutStore.ts` 抽取 `store/{corner,dock,resize,shared}`；
   `LayoutViewDom.tsx` 抽 `useLayoutGestureBridge` / `LayoutPreview` / `domPct`。
 - 工程化：新增 `build:demo`（demo 生产构建）+ CI 步骤、ESLint、`engines`、Actions 升级至当前大版本、本 CHANGELOG。
+- 测试：覆盖率提升至 **100 / 93.9 / 100 / 100**（语句/分支/函数/行）；闸门抬至 98/90/98/98。
 
 ## [0.3.0] - 2026-09-02
 - 集成友好化：`flow` 容器策略、声明式 `initialLayout`、内容内联自动注册、主题穿透修复。

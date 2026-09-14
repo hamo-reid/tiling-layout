@@ -79,3 +79,16 @@ describe("useLayoutData 门面", () => {
     expect(count).toBeGreaterThan(0);
   });
 });
+
+describe("useLayoutData 操作补充", () => {
+  it("setAreaContent / restore", () => {
+    const { result } = renderHook(() => useLayoutData());
+    const id = result.current.screen.areas[0].id;
+    act(() => { result.current.setAreaContent(id, "shader"); });
+    expect(useLayout.getState().screen.areas.find((a) => a.id === id)?.contentType).toBe("shader");
+
+    const snap = collectSnapshot(buildInitialScreen());
+    act(() => { result.current.restore(snap); });
+    expect(useLayout.getState().screen.areas).toHaveLength(3);
+  });
+});

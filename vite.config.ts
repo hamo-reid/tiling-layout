@@ -38,13 +38,13 @@ export default defineConfig({
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/index.ts", "src/public-api.ts", "src/styles/**"],
       reporter: ["text", "html"],
-      // 覆盖率闸门：低于当前水位(93/87/90)即失败，防回归；刻意留余量容许
-      // 个别防御分支的波动
+      // 覆盖率闸门：略低于当前水位(100/93.9/100/100)即失败，防回归；刻意留余量容忍
+      // 防御分支的合理波动
       thresholds: {
-        statements: 90,
-        branches: 82,
-        functions: 85,
-        lines: 90,
+        statements: 98,
+        branches: 90,
+        functions: 98,
+        lines: 98,
       },
     },
   },

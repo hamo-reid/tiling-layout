@@ -263,3 +263,18 @@ describe("几何参数接入(configureRuntime)", () => {
     expect(G.snapCoord(s, a, 0.3, 0, G.AXIS.H, 1, 0)).toBeCloseTo(1 / 3, 9);
   });
 });
+
+describe("几何查询:未命中 / 非相邻", () => {
+  it("findAreaAtXY 点在舞台外 → null", () => {
+    const s = buildInitialScreen();
+    expect(G.findAreaAtXY(s, -0.01, 0.5)).toBeNull();
+    expect(G.findAreaAtXY(s, 0.5, 1.5)).toBeNull();
+  });
+
+  it("isBoundaryAdjacent 两区不相邻 → false", () => {
+    const s = G.createScreen();
+    const a = G.addArea(s, G.rect(0, 0, 0.4, 0.4), "a");
+    const b = G.addArea(s, G.rect(0.6, 0.6, 1, 1), "b");
+    expect(G.isBoundaryAdjacent(s, a, b)).toBe(false);
+  });
+});

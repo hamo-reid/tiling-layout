@@ -238,3 +238,46 @@ describe("LayoutViewDom 分界线 hover 连通族高亮", () => {
     expect(hoveredEdges.size).toBe(1);
   });
 });
+
+describe("LayoutViewDom 预览 / hover / 误用告警补充", () => {
+  it("theme.interaction 误挂实例 → 一次性 warn", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      render(<LayoutViewDom theme={{ interaction: { dockCenter: 0.3 } }} />);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("theme.interaction"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("停靠四边预览:四个方向都算出 slot 矩形", () => {
+    const [src, tgt] = useLayout.getState().screen.areas;
+    const { container } = render(<LayoutViewDom />);
+    for (const target of ["left", "right", "bottom", "top"] as const) {
+      act(() => {
+        useLayout.setState({
+          mode: "docking",
+          dock: { srcId: src!.id, start: { x: 0.5, y: 0.5 }, targetId: tgt!.id, target, factorDock: 0.4, canClose: true },
+        });
+      });
+      expect(container.querySelector(".tl-preview-slot")).not.toBeNull();
+      expect(container.querySelector(".tl-preview-target")).not.toBeNull();
+    }
+  });
+
+  it("分界线 hover 后离开 → 清除高亮", () => {
+    const { container } = render(<LayoutViewDom />);
+    const split = container.querySelector(".tl-asplit")!;
+    fireEvent.mouseEnter(split);
+    fireEvent.mouseLeave(split);
+    expect(split.className).not.toContain("tl-asplit-hot");
+  });
+
+  it("角标 hover 进入/离开记录共享块", () => {
+    const { container } = render(<LayoutViewDom />);
+    const corner = container.querySelector(".tl-corner")!;
+    fireEvent.mouseEnter(corner);
+    fireEvent.mouseLeave(corner);
+    expect(container.querySelector(".tl-corner")).not.toBeNull();
+  });
+});
