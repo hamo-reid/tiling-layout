@@ -3,6 +3,7 @@ import { useAreaState } from "./areaStore";
 import type { AreaState } from "./areaStore";
 import { useScene } from "./sceneStore";
 import type { MeshObject } from "./sceneStore";
+import { checkTiling, toEntries } from "./invariants";
 
 /**
  * layoutData — 布局库的数据层：把「几何平铺 + 每区域实例状态 + 共享数据」统一成一份
@@ -33,17 +34,12 @@ export interface LayoutSnapshot {
 
 export const SNAPSHOT_VERSION = 1;
 
-/** 坐标/平铺校验容差：内部运算的累计浮点误差远低于此值，外部来源(反序列化)的
- *  ulp 级噪声也应放行；超出容差即视为非法数据 */
-const COORD_EPS = 1e-9;
-/** 平铺完整性(总面积=1)校验容差，比单点坐标容差放宽一档以吸收多矩形累计误差 */
-const TILE_EPS = 1e-6;
-
 const isPlainObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** 校验一条区域条目为 [xmin,ymin,xmax,ymax]；几何非法直接抛错。
- *  校验内容：id 为非负整数、rect 各分量为有限值、正宽高、坐标位于 [0,1] 舞台内。 */
+ *  校验内容：id 为非负整数、rect 各分量为有限值、正宽高、坐标位于 [0,1] 舞台内。
+ *  几何那部分委托 `invariants.checkTiling`(与命令层同一套容差)，此处只留快照 schema 的形状。 */
 function normalizeAreaEntry(e: unknown): AreaSnap {
   const a = e as Partial<AreaSnap> & Record<string, unknown>;
   if (typeof a.id !== "number" || !Number.isInteger(a.id) || a.id < 0 || typeof a.contentType !== "string") {
@@ -56,44 +52,21 @@ function normalizeAreaEntry(e: unknown): AreaSnap {
   if (r.length < 4 || !r.every(Number.isFinite)) {
     throw new Error(`无效的区域条目(id=${String(a.id)})`);
   }
+  const report = checkTiling([{ id: a.id, rect: r }]);
+  if (report.errors.length > 0) throw new Error(report.errors[0]);
   const [xmin, ymin, xmax, ymax] = r;
-  if (!(xmax - xmin > 0) || !(ymax - ymin > 0)) {
-    throw new Error(`无效的区域矩形(id=${String(a.id)})`);
-  }
-  // [0,1] 比例坐标不变式：坐标系语义由本层兜底，不依赖调用方守约
-  if (xmin < -COORD_EPS || ymin < -COORD_EPS || xmax > 1 + COORD_EPS || ymax > 1 + COORD_EPS) {
-    throw new Error(`区域矩形越出 [0,1] 舞台(id=${String(a.id)})`);
-  }
   return { id: a.id, contentType: a.contentType, rect: [xmin, ymin, xmax, ymax] };
 }
 
-/** 校验矩形集合互不重叠(内部)：重叠会让 deriveEdges 推导出错误分界线、
- *  命中与拖拽错位，属真实几何损坏，fail-closed 拒绝。 */
-function assertNoOverlap(areas: AreaSnap[]): void {
-  for (let i = 0; i < areas.length; i++) {
-    for (let j = i + 1; j < areas.length; j++) {
-      const A = areas[i].rect, B = areas[j].rect;
-      const ox = Math.min(A[2], B[2]) - Math.max(A[0], B[0]);
-      const oy = Math.min(A[3], B[3]) - Math.max(A[1], B[1]);
-      if (ox > COORD_EPS && oy > COORD_EPS) {
-        throw new Error(`区域矩形重叠(id=${areas[i].id} 与 id=${areas[j].id})`);
-      }
-    }
-  }
-}
-
-/** 提示矩形集合未铺满单位舞台。满铺是平铺模型的文档不变式，但通过公开 API
- *  (addArea)程序化构造部分平铺是合法使用方式(docs 教学示例即如此)——库自身
- *  的 collectSnapshot 也可能产出这类快照，硬拒绝会造成「自己写的数据自己
- *  读不回」，且在 autosave 下被静默剔除；故降级为警告放行。 */
-function warnIfNotFullCover(areas: AreaSnap[]): void {
-  if (areas.length === 0) return;
-  const sum = areas.reduce((acc, a) => acc + (a.rect[2] - a.rect[0]) * (a.rect[3] - a.rect[1]), 0);
-  if (Math.abs(sum - 1) > TILE_EPS) {
-    console.warn(
-      `[tiling-layout] 布局未铺满舞台(总面积=${sum.toFixed(9)})：平铺模型约定区域铺满 [0,1]×[0,1]，本次按现状放行`,
-    );
-  }
+/** 校验整份快照的几何：两两不重叠(fail-closed —— 重叠会让 deriveEdges 推导出错误
+ *  分界线、命中与拖拽错位，属真实几何损坏)，未铺满单位舞台则降级为警告放行
+ *  (满铺是文档不变式而非硬约束：经公开 API addArea 程序化构造部分平铺是合法用法，
+ *  docs 教学示例即如此；硬拒绝会造成「自己写的数据自己读不回」，且在 autosave 下被静默剔除)。
+ *  两档容差与命令层共用 `invariants.checkTiling`，不另立口径。 */
+function assertSnapshotGeometry(areas: AreaSnap[]): void {
+  const report = checkTiling(toEntries(areas), { full: "warn" });
+  if (report.errors.length > 0) throw new Error(report.errors[0]);
+  for (const w of report.warnings) console.warn(`[tiling-layout] ${w}`);
 }
 
 /** 将任意快照归一为当前格式：校验结构并固定 v 字段。
@@ -124,8 +97,7 @@ export function migrateSnapshot(raw: unknown): LayoutSnapshot {
     if (ids.has(a.id)) throw new Error(`区域 id 重复(id=${a.id})`);
     ids.add(a.id);
   }
-  assertNoOverlap(s.areas);
-  warnIfNotFullCover(s.areas);
+  assertSnapshotGeometry(s.areas);
 
   s.areaStates ??= {};
   for (const [k, slots] of Object.entries(s.areaStates)) {

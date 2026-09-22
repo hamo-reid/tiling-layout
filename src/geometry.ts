@@ -10,12 +10,14 @@
  *   - `geometry/types.ts`  : 类型/常量/矩形数据结构
  *   - `geometry/edges.ts`  : deriveEdges / findEdgeAtPos / 共享边 / 连通线族
  *   - `geometry/layout.ts` : findAreaAtXY / splitCoord / split / joinAreas / snapCoord
+ *   - `geometry/commands.ts`: splitAt / planClose+applyClose / segBetween / 线族平移与夹逼
  *
  * 坐标系：**归一化比例坐标 [0,1]×[0,1]**（原点左下，y 向上、x 向右；渲染层再与 DOM 翻转）。
  *
  * ⚠ 不变式：相邻矩形的公共边界坐标来自同一处计算（split 的切分值写进两侧矩形；
  * applySnapshot 恢复时同一坐标原样写回），故邻接判定、线族传播用 `===` 精确比较；
  * 仅外部来源（快照反序列化）引入浮点误差处，用 EPS(1e-9) 与 toFixed(6) 容差兜底。
+ * **新增的命令式原语必须遵守**：先算出一个坐标值，再原样写给每个受影响矩形。
  */
 export {
   AXIS, MIN_AREA_W, MIN_AREA_H, EDGE_TOLERANCE,
@@ -28,3 +30,8 @@ export {
 export {
   findAreaAtXY, splitCoord, split, joinAreas, snapCoord,
 } from "./geometry/layout";
+export {
+  splitAt, planClose, applyClose, segBetween, lineBounds, clampLine, writeLine,
+  planLineTo, applyLineTo, planRatio, dockSlotRect, dockRestRect,
+} from "./geometry/commands";
+export type { CloseSide, ClosePlan, RectEdge, LineBounds, MemberLimit, DockSide } from "./geometry/commands";
