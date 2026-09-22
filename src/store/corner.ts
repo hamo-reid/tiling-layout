@@ -2,13 +2,14 @@
  * store/corner.ts — 角标手势(分割 / 合并 / 交换)与分割方向切换。
  *
  * 由 layoutStore 组装进 store;状态经 get/set 读写,辅助走 store/shared。
+ *
+ * 落地全部委托给命令层(`splitArea` / `mergeAreas` / `swapAreas`)：手势只负责把
+ * 指针换算成参数与写状态栏，几何、实例状态迁移、入栈都不再各写一遍。
  */
 import * as G from "../geometry";
 import { runtime } from "../runtimeConfig";
-import { cloneAreaState, removeAreaStates, swapAreaState } from "../areaStore";
-import { collectSnapshot } from "../layoutData";
 import type { LayoutStore } from "../layoutStore";
-import { areaById, contentName, factorFromLine, retypedAreas } from "./shared";
+import { areaById, contentName, factorFromLine } from "./shared";
 
 type Get = () => LayoutStore;
 type Set = (partial: Partial<LayoutStore>) => void;
@@ -113,46 +114,36 @@ export function createCornerActions(
 
     cornerUp: () => {
       const st = get();
-      const s = st.screen;
-      const pre = JSON.stringify(collectSnapshot(s)); // 操作前快照(实际生效才入栈)
       const src = areaById(get, st.srcId);
       const tgt = areaById(get, st.hoverTId);
       let status: string;
-      const retype = new Map<number, string>(); // 内容类型变化(不可变落地)
-      let mutated = false;                       // 几何/内容实际变化才入历史(纯取消不污染 undo)
 
+      // 命令会整体换掉 areas 数组(克隆后编辑)，故一切人读信息都在调用**之前**取好
       if (src && tgt && tgt !== src) {
         if (st.ctrl) {
-          // 内容交换：contentType 互换 + 实例状态随同互换
-          const srcT = src.contentType, tgtT = tgt.contentType;
-          swapAreaState(src.id, tgt.id);
-          retype.set(src.id, tgtT).set(tgt.id, srcT);
-          status = `已交换「${contentName(srcT)}」与「${contentName(tgtT)}」内容。`;
-          mutated = true;
+          // 内容交换：contentType 与实例状态随同互换
+          const srcName = contentName(src.contentType), tgtName = contentName(tgt.contentType);
+          status = st.swapAreas(src.id, tgt.id)
+            ? `已交换「${srcName}」与「${tgtName}」内容。`
+            : "无法交换。";
         } else {
-          const keep = G.joinAreas(s, src, tgt); // 保留角落源区，吸收目标
-          if (keep) {
-            removeAreaStates([tgt.id]);          // 被吞块实例状态随内容丢弃
-            status = `已合并 → 「${contentName(keep.contentType)}」`;
-            mutated = true;
-          } else {
-            status = "无法合并：两区域需共享整条分界线。";
-          }
+          const keepName = contentName(src.contentType);   // joinAreas 保留 keep = 角落源区
+          status = st.mergeAreas(src.id, tgt.id)
+            ? `已合并 → 「${keepName}」`
+            : "无法合并：两区域需共享整条分界线。";
         }
       } else if (st.splitDir && src) {
+        const name = contentName(src.contentType);
         const fac = factorFromLine(get, src, st.splitDir, st.splitLine);
-        const narea = G.split(s, src, st.splitDir, fac);
-        if (narea) {
-          cloneAreaState(src.id, narea.id); // 新生区域继承来源实例状态(clone)
-          mutated = true;
-        }
-        status = narea
-          ? `已分割「${contentName(src.contentType)}」→ 新区域「${contentName(narea.contentType)}」。新分界线可继续拖动。`
+        const split = st.splitArea(src.id, st.splitDir, fac);
+        status = split
+          ? `已分割「${name}」→ 新区域 id=${split.created}。新分界线可继续拖动。`
           : "当前区域过小，无法分割。";
       } else {
         status = "已取消";
       }
 
+      // 几何/内容/实例状态/历史已由命令落地；此处只收手势残留与状态栏
       set({
         mode: "idle",
         status,
@@ -160,9 +151,6 @@ export function createCornerActions(
         hoverTId: null,
         splitDir: null,
         snapped: false,
-        past: mutated ? [...st.past, pre].slice(-runtime().historyMax) : st.past,
-        future: mutated ? [] : st.future,
-        screen: { ...s, areas: retypedAreas(s, retype) },
       });
     },
   };

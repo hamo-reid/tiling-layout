@@ -4,13 +4,16 @@
  * 四边停靠两条落地路径：
  *   1) 源区与目标共享整边且无第三方可吞并 → 并集重排为两块(原位改尺寸);
  *   2) 否则目标内分裂出槽承载源内容,源区由"非目标"邻居吞并闭合。
+ *
+ * 分裂与闭合都走命令层(`splitAt` / `planClose`+`applyClose`)：闭合逻辑过去在这里
+ * 私有一份"找**单个**共享整边的邻居吞并"的写法，源区位置被多个邻居分摊(T 型交会)
+ * 时只能取消；`planClose` 的多邻居分摊扩张补上了这个洞。
  */
 import * as G from "../geometry";
 import { runtime } from "../runtimeConfig";
-import { moveAreaState, swapAreaState } from "../areaStore";
-import { collectSnapshot } from "../layoutData";
+import { moveAreaState } from "../areaStore";
+import { beginMutation, areaById, contentName, landPatch, sideLabel, snapFactor } from "./shared";
 import type { DockTarget, LayoutStore } from "../layoutStore";
-import { areaById, contentName, retypedAreas, sideLabel, snapFactor } from "./shared";
 
 type Get = () => LayoutStore;
 type Set = (partial: Partial<LayoutStore>) => void;
@@ -63,11 +66,11 @@ export function createDockActions(
         : target === "top" ? 1 - fy
         : 0.4;
       const factorDock = target === "center" ? 0.4 : snapFactor(raw);
-      // 四边停靠可行性:源区可被"非目标"邻居吞并闭合,或源区与目标共享整边
-      // (此时并集是矩形,可在 dockUp 里把并集重排为两块,无需第三方吞并)。
+      // 四边停靠可行性:源区可被"非目标"邻居吞并闭合(planClose 统一判定,含
+      // T 型交会处的多邻居分摊),或源区与目标共享整边(并集重排,无需第三方吞并)。
       const canClose = target === "center"
         || G.findSharedEdge(s, src, cur)
-        || s.areas.some((nb) => nb !== cur && G.findSharedEdge(s, src, nb));
+        || G.planClose(s.areas, src.id, { exclude: [cur.id] }) !== null;
       const finalTarget: DockTarget = canClose ? target : "none";
       set({ dock: { ...dk, targetId: cur.id, target: finalTarget, factorDock, canClose } });
     },
@@ -75,54 +78,44 @@ export function createDockActions(
     dockUp: () => {
       const st = get();
       const s = st.screen;
-      const pre = JSON.stringify(collectSnapshot(s)); // 操作前快照(实际生效才入栈)
       const dk = st.dock;
-      let status: string;
-      const retype = new Map<number, string>(); // 内容类型变化(不可变落地)
-      let mutated = false;                       // 几何/内容实际变化才入历史
-      if (dk) {
-        const src = areaById(get, dk.srcId);
-        const tgt = areaById(get, dk.targetId);
-        if (!src || !tgt || tgt.id === dk.srcId || dk.target === "none") {
-          status = "已取消";
-        } else if (dk.target === "center") {
-          // 中心停靠=交换内容（Area 对象不可变替换）
-          const srcT = src.contentType, tgtT = tgt.contentType;
-          swapAreaState(src.id, tgt.id);
-          retype.set(src.id, tgtT).set(tgt.id, srcT);
-          status = `已交换「${contentName(srcT)}」与「${contentName(tgtT)}」内容。`;
-          mutated = true;
-        } else if (
-          // 源区仅与目标共享整边(无第三方邻居可吞并源区):并集是矩形,直接重排为两块。
-          G.findSharedEdge(s, src, tgt)
-          && !s.areas.some((nb) => nb !== src && nb !== tgt && G.findSharedEdge(s, src, nb))
+      // 在克隆上试算：失败路径(目标过小 / 无法闭合)自然只剩"原屏未动"一种结果，
+      // 不再需要手工回滚槽区
+      const draft: G.Screen = { _id: s._id, areas: s.areas.map((a) => ({ ...a, rect: { ...a.rect } })) };
+      let status = "已取消";
+      let mutated = false;
+      /** 需要一并搬迁实例状态的 [源 → 槽] 对 */
+      let moved: { from: number; to: number } | null = null;
+      const retype = new Map<number, string>();
+
+      const src = dk ? draft.areas.find((a) => a.id === dk.srcId) ?? null : null;
+      const tgt = dk ? draft.areas.find((a) => a.id === dk.targetId) ?? null : null;
+
+      if (dk && src && tgt && tgt.id !== dk.srcId && dk.target !== "none") {
+        if (dk.target === "center") {
+          // 中心停靠 = 交换内容(实例状态随同互换)：整体交给命令，含入栈与状态栏
+          const swapped = st.swapAreas(src.id, tgt.id);
+          set({
+            mode: "idle",
+            dock: null,
+            status: swapped ? `已交换「${contentName(src.contentType)}」与「${contentName(tgt.contentType)}」内容。` : "无法交换。",
+          });
+          return;
+        }
+        if (
+          // 源区仅与目标共享整边(无第三方邻居可吞并源区):并集是矩形，直接重排为两块。
+          G.findSharedEdge(draft, src, tgt)
+          && !draft.areas.some((nb) => nb !== src && nb !== tgt && G.findSharedEdge(draft, src, nb))
         ) {
+          const side = dk.target;
           const R = G.rect(
             Math.min(src.rect.xmin, tgt.rect.xmin),
             Math.min(src.rect.ymin, tgt.rect.ymin),
             Math.max(src.rect.xmax, tgt.rect.xmax),
             Math.max(src.rect.ymax, tgt.rect.ymax),
           );
-          const f = Math.min(1, Math.max(0, dk.factorDock));
-          let slotR: G.Rect;
-          let otherR: G.Rect;
-          if (dk.target === "left") {
-            const cut = R.xmin + R.width * f;
-            slotR = G.rect(R.xmin, R.ymin, cut, R.ymax);
-            otherR = G.rect(cut, R.ymin, R.xmax, R.ymax);
-          } else if (dk.target === "right") {
-            const cut = R.xmax - R.width * f;
-            slotR = G.rect(cut, R.ymin, R.xmax, R.ymax);
-            otherR = G.rect(R.xmin, R.ymin, cut, R.ymax);
-          } else if (dk.target === "bottom") {
-            const cut = R.ymin + R.height * f;
-            slotR = G.rect(R.xmin, R.ymin, R.xmax, cut);
-            otherR = G.rect(R.xmin, cut, R.xmax, R.ymax);
-          } else { // top
-            const cut = R.ymax - R.height * f;
-            slotR = G.rect(R.xmin, cut, R.xmax, R.ymax);
-            otherR = G.rect(R.xmin, R.ymin, R.xmax, cut);
-          }
+          const slotR = G.dockSlotRect(R, side, dk.factorDock);
+          const otherR = G.dockRestRect(R, side, dk.factorDock);
           // 尺寸下限:两半任一低于最小宽/高即放弃(与分裂同一约束)
           const rt = runtime();
           const fits = slotR.width >= rt.minAreaW && otherR.width >= rt.minAreaW
@@ -134,56 +127,51 @@ export function createDockActions(
             src.rect = slotR;
             tgt.rect = otherR;
             mutated = true;
-            status = `已停靠「${contentName(src.contentType)}」到目标${sideLabel(dk.target)}。`;
+            status = `已停靠「${contentName(src.contentType)}」到目标${sideLabel(side)}。`;
           }
         } else {
           // 四边停靠：目标内分裂出槽承载拖区内容；源区由邻居吞并闭合
-          const axis = (dk.target === "left" || dk.target === "right") ? G.AXIS.V : G.AXIS.H;
-          const param = (dk.target === "left" || dk.target === "bottom") ? dk.factorDock : 1 - dk.factorDock;
-          const slot = G.split(s, tgt, axis, param);
-          if (!slot) {
+          const side = dk.target;
+          const axis = (side === "left" || side === "right") ? G.AXIS.V : G.AXIS.H;
+          const param = (side === "left" || side === "bottom") ? dk.factorDock : 1 - dk.factorDock;
+          const split = G.splitAt(draft, tgt, axis, param);
+          if (split === null) {
             status = "目标区域过小，无法停靠。";
           } else {
+            // 停靠侧 = 槽。splitAt 的返回体直接给出 kept/created，
+            // 不必再靠坐标比较反推哪半是槽(旧写法 left = ar.xmin < br.xmin ? tgt : slot)。
+            const slot = side === "left" || side === "bottom" ? split.kept : split.created;
+            const other = slot === split.kept ? split.created : split.kept;
             const oldType = src.contentType;
-            const ar = G.areaRect(s, tgt), br = G.areaRect(s, slot);
-            // 识别停靠侧 = 槽；非槽保留目标原内容
-            const left = ar.xmin < br.xmin ? tgt : slot;
-            const bottom = ar.ymin < br.ymin ? tgt : slot;
-            const dockSide = dk.target === "left" ? left
-              : dk.target === "right" ? (left === tgt ? slot : tgt)
-              : dk.target === "bottom" ? bottom
-              : (bottom === tgt ? slot : tgt); // top
-            const other = dockSide === tgt ? slot : tgt;
-            // 拖区内容进槽(dockSide)；非槽侧(other)内容本就不变 → 无需赋值。
-            // retype 落地放在闭合成功分支，回滚路径不触碰任何 contentType。
-
-            // 移除源区：找共享整条边的邻居吞并(闭合)
-            let closed = false;
-            for (const nb of s.areas) {
-              if (nb === dockSide || nb === other) continue;
-              if (G.findSharedEdge(s, src, nb) && G.joinAreas(s, nb, src)) { closed = true; break; }
-            }
-            if (!closed) {
-              G.joinAreas(s, tgt, slot); // 回滚：槽并回目标，源区不动
+            // 移除源区：并入邻居闭合(排除槽与目标 —— 它们不能当吞并方)
+            const plan = G.planClose(draft.areas, src.id, { exclude: [slot.id, other.id] });
+            if (plan === null) {
               status = "无法闭合源区位置，已取消停靠。";
             } else {
-              retype.set(dockSide.id, oldType); // 拖区内容进槽
-              moveAreaState(src.id, dockSide.id); // 源内容进槽：实例状态随之转移到槽
-              status = `已停靠「${contentName(oldType)}」到目标${sideLabel(dk.target)}。`;
+              G.applyClose(draft, plan);
+              retype.set(slot.id, oldType);            // 拖区内容进槽(槽本继承目标的类型)
+              moved = { from: src.id, to: slot.id };   // 源内容进槽：实例状态随之转移
+              status = plan.spanned
+                ? `已停靠「${contentName(oldType)}」到目标${sideLabel(side)}（源区由 ${plan.expansions.map((e) => e.id).join("、")} 分摊闭合）。`
+                : `已停靠「${contentName(oldType)}」到目标${sideLabel(side)}。`;
               mutated = true;
             }
           }
         }
-      } else {
-        status = "已取消";
       }
+
+      if (mutated && moved !== null) moveAreaState(moved.from, moved.to);
       set({
+        // 失败路径必须丢弃 draft：试算时已经分裂过目标区，未落地时原屏分毫未动
+        ...landPatch(st, {
+          screen: mutated ? draft : s,
+          retype,
+          status,
+          pre: mutated ? beginMutation(s) : "",
+          mutated,
+        }),
         mode: "idle",
-        status,
         dock: null,
-        past: mutated ? [...st.past, pre].slice(-runtime().historyMax) : st.past,
-        future: mutated ? [] : st.future,
-        screen: { ...s, areas: retypedAreas(s, retype) },
       });
     },
   };

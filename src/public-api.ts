@@ -9,9 +9,16 @@ export {
   findAreaAtXY, findEdgeAtPos, findSharedEdge, isBoundaryAdjacent,
   splitCoord, split, joinAreas,
   deriveEdges, connectedSegs, edgeFamilyAreas, snapCoord,
+  splitAt, planClose, applyClose, segBetween, lineBounds, clampLine, writeLine,
+  planLineTo, applyLineTo, planRatio, dockSlotRect, dockRestRect,
   AXIS, MIN_AREA_W, MIN_AREA_H, EDGE_TOLERANCE,
 } from "./geometry";
 export type { Screen, Area, Seg, Rect, Axis, Vec2, EdgeHit, FamilyMember } from "./geometry";
+export type { CloseSide, ClosePlan, RectEdge, LineBounds, MemberLimit, DockSide } from "./geometry";
+
+// 布局合法性(唯一权威：migrateSnapshot 与命令层共用一套容差)
+export { checkTiling, tilingOk, toEntries, areaEntries, COORD_EPS, TILE_EPS } from "./invariants";
+export type { TilingEntry, TilingReport, FullCoverPolicy } from "./invariants";
 
 // 默认屏幕
 export { buildInitialScreen, CONTENT } from "./screen";
@@ -45,7 +52,10 @@ export type { LayoutEvent, Listener } from "./layoutBus";
 // (数组/对象引用不变，zustand 按 Object.is 判等)。细粒度实例状态请走
 // useAreaInstance / useLayoutData。
 export { useLayout } from "./layoutStore";
-export type { LayoutStore, DockTarget, DockState, ResizeCtx } from "./layoutStore";
+export type {
+  LayoutStore, DockTarget, DockState, ResizeCtx,
+  SplitResult, CloseResult, MergeResult, SwapResult, RatioResult, CloseOptions,
+} from "./layoutStore";
 export { useLayoutData } from "./useLayoutData";
 export type { LayoutDataApi } from "./useLayoutData";
 

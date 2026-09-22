@@ -4,10 +4,11 @@ import { runtime } from "./runtimeConfig";
 import { buildInitialScreen } from "./screen";
 import { getContentTitle } from "./registry";
 import { applySnapshot, collectSnapshot, migrateSnapshot } from "./layoutData";
-import { retypedAreas } from "./store/shared";
+import { beginMutation, landPatch } from "./store/shared";
 import { createCornerActions } from "./store/corner";
 import { createDockActions } from "./store/dock";
 import { createResizeActions } from "./store/resize";
+import { createLayoutCommands } from "./store/commands";
 
 /**
  * layoutStore — 全局状态机(组装层)。
@@ -28,7 +29,7 @@ type Vec2 = G.Vec2; // 与几何层共用同一坐标点类型，避免重复定
 /** 停靠目标：center 目标区中央替换 / 四边停靠槽 / none 无有效目标
  * @category 状态机与门面
  */
-export type DockTarget = "center" | "left" | "right" | "top" | "bottom" | "none";
+export type DockTarget = "center" | G.DockSide | "none";
 /** 拖拽停靠的手势中间态
  * @category 状态机与门面
  */
@@ -48,9 +49,23 @@ export interface ResizeCtx {
   dir: G.Axis;
   orig: number;
   origPt: number;
-  /** 须整体平移的矩形族(成员 + 其位于线的哪一侧) */
+  /** 线族在**动手之前**解出的夹逼区间、成员表与逐成员可行边界。拖动过程中线已离开
+   *  原坐标，再查 `edgeFamilyAreas` 会查不到族，故在此一次性取好、每帧复用。 */
+  bounds: G.LineBounds | null;
+  /**
+   * 须整体平移的矩形族(成员 + 其位于线的哪一侧)。
+   *
+   * @deprecated 就是 `bounds.family` 的快照 —— 改读 `bounds`，本字段 1.0 前移除。
+   *   保留仅为 0.4.0 消费方的读取兼容。
+   */
   moved: G.FamilyMember[];
-  adj: { min?: number; max?: number }[];
+  /**
+   * 逐成员的可行边界，与 `moved` 同序；其归约(逐项 max(min) / min(max))即 `bounds.lo`/`bounds.hi`。
+   *
+   * @deprecated 就是 `bounds.limits` —— `moved`/`adj` 与 `bounds` 同源(都出自
+   *   `geometry.lineBounds`)，故不会漂。改读 `bounds`，本字段 1.0 前移除。
+   */
+  adj: G.MemberLimit[];
   /** 拖拽前快照(undo 用)：endResize 实际发生位移才入栈，取消即丢弃 */
   pre: string;
   /** 拖拽前的矩形引用表(cancel 回滚用)。resizeMove 以 withRect 产物整体替换
@@ -58,6 +73,26 @@ export interface ResizeCtx {
   origRects: { area: G.Area; rect: G.Rect }[];
   /** 本次手势是否实际发生位移(决定 endResize 是否入历史栈) */
   dragged: boolean;
+}
+
+/** 命令结果：纯数据，不外泄 Area/Rect 引用(调用方据此写状态栏与错误信息，无需反查 screen) */
+export interface SplitResult { readonly kept: number; readonly created: number }
+export interface CloseResult {
+  readonly closed: number;
+  readonly side: G.CloseSide;
+  /** 邻居多于一个(分摊扩张) */
+  readonly spanned: boolean;
+  /** 吞并它的区域 id 列表 */
+  readonly absorbedBy: readonly number[];
+}
+export interface MergeResult { readonly keep: number; readonly dropped: number; readonly droppedContent: string }
+export interface SwapResult { readonly a: number; readonly b: number }
+export interface RatioResult { readonly from: number; readonly to: number; readonly axis: G.Axis; readonly members: number }
+export interface CloseOptions {
+  /** 只接受这一侧(启发式之外的强制口)；不给则按 planClose 的偏好选边 */
+  readonly side?: G.CloseSide;
+  /** 不可作为吞并方的区域 id */
+  readonly exclude?: readonly number[];
 }
 
 /** 全局布局状态机：状态字段(供渲染层订阅显示) + action(由 UI 事件换算坐标后调用)
@@ -118,6 +153,21 @@ export interface LayoutStore {
    *  @param areaId 目标区域 id
    *  @param type 新内容类型标识 */
   setAreaContent: (areaId: number, type: string) => void;
+
+  // ── 命令式排布(收 id、返回纯数据、幂等) ──────────────────────────────
+  /** 沿 dir 一分为二：源区保 min 侧占 ratio(缺省 0.5)，新块继承源区内容与实例状态。
+   *  区域不存在 / 不足以分割 / 结果不合法 → null(零改动)。 */
+  splitArea: (id: number, dir: G.Axis, ratio?: number) => SplitResult | null;
+  /** 关闭区域并把它的位置并入紧邻者(邻居分摊扩张)。只剩一块 / 无解 / 结果不合法 → null。 */
+  closeArea: (id: number, opts?: CloseOptions) => CloseResult | null;
+  /** 合并两块：**保留 keep 的内容，丢弃 remove 的**。不共享整条分界线 / 结果不合法 → null。 */
+  mergeAreas: (keepId: number, removeId: number) => MergeResult | null;
+  /** 交换两块显示的内容(含实例状态)，几何不动。 */
+  swapAreas: (a: number, b: number) => SwapResult | null;
+  /** 把整条连通线族平移到「a 侧占 ratio」的位置(与手动拖分界线同语义)。 */
+  setRatio: (seg: G.Seg, ratio: number) => RatioResult | null;
+  /** 幂等设置最大化目标(null = 退出)。**不进历史**(视图态)。 */
+  setMaximized: (id: number | null) => void;
 
   /** 设置状态栏文字 @param t 状态文字 */
   setStatus: (t: string) => void;
@@ -191,14 +241,18 @@ export const useLayout = create<LayoutStore>((set, get) => ({
   },
 
   setAreaContent: (areaId, type) => {
-    const s = get().screen;
+    const st = get();
+    const s = st.screen;
     const a = s.areas.find((x) => x.id === areaId);
     if (!a || a.contentType === type) return;     // 区域不存在 / 类型未变 → no-op，不进历史栈
-    get().commitHistory();                         // 先打快照 → undo 一步回到切换前
-    set({
-      screen: { ...s, areas: retypedAreas(s, new Map([[areaId, type]])) },
+    const pre = beginMutation(s);                  // 先打快照 → undo 一步回到切换前
+    set(landPatch(st, {
+      screen: s,
+      retype: new Map([[areaId, type]]),
       status: `已切换为「${getContentTitle(type)}」`,
-    });                                            // layoutBus 经 store 订阅+指纹自动感知
+      pre,
+      mutated: true,
+    }));                                           // layoutBus 经 store 订阅+指纹自动感知
   },
   undo: () => {
     const st = get();
@@ -219,15 +273,16 @@ export const useLayout = create<LayoutStore>((set, get) => ({
   setCtrl: (ctrl) => set({ ctrl }),
 
   toggleMaximize: (areaId) => {
-    const st = get();
-    const maximizedId = st.maximizedId === areaId ? null : areaId;
-    set({ maximizedId, mode: "idle", srcId: null, hoverTId: null, splitDir: null, snapped: false, resize: null, dock: null });
+    // 手势要的"再点一次切回来"；幂等设置走 setMaximized（唯一实现）
+    get().setMaximized(get().maximizedId === areaId ? null : areaId);
   },
   exitMaximize: () => {
-    set({ maximizedId: null, mode: "idle", srcId: null, hoverTId: null, splitDir: null, snapped: false, resize: null, dock: null });
+    get().setMaximized(null);
   },
 
-  // 三个手势域(角标 / 停靠 / 分界线)由各自模块的工厂装配，共享 get/set 与 store/shared 辅助
+  // 命令式排布(收 id、返回纯数据、单点入栈)与三个手势域(角标 / 停靠 / 分界线)
+  // 由各自模块的工厂装配，共享 get/set 与 store/shared 辅助
+  ...createLayoutCommands(get, set),
   ...createCornerActions(get, set),
   ...createDockActions(get, set),
   ...createResizeActions(get, set),

@@ -13,6 +13,12 @@ describe("public-api 公开面契约", () => {
       "createScreen", "addArea", "rect", "withRect", "findAreaAtXY", "findEdgeAtPos",
       "split", "splitCoord", "joinAreas", "deriveEdges", "connectedSegs",
       "edgeFamilyAreas", "snapCoord", "AXIS", "MIN_AREA_W", "MIN_AREA_H",
+      // 命令式排布原语(v0.5)
+      "splitAt", "planClose", "applyClose", "segBetween",
+      "lineBounds", "clampLine", "writeLine", "planLineTo", "applyLineTo", "planRatio",
+      "dockSlotRect", "dockRestRect",
+      // 合法性校验(唯一权威)
+      "checkTiling", "tilingOk", "toEntries", "areaEntries", "COORD_EPS", "TILE_EPS",
       // 数据 / 总线 / 状态机
       "collectSnapshot", "applySnapshot", "migrateSnapshot", "serializeLayout", "SNAPSHOT_VERSION",
       "layoutBus", "useLayout", "useLayoutData",

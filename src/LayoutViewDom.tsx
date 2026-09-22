@@ -192,18 +192,9 @@ export function LayoutViewDom(props: LayoutViewDomProps = {}) {
     ? (screen.areas.find((a) => a.id === dock.targetId) ?? null) : null;
   const dkTgtRect = dkTgtR ? G.areaRect(screen, dkTgtR) : null;
   const dkSrcR = dkSrc ? G.areaRect(screen, dkSrc) : null;
-  // 停靠四边的槽矩形(比例)——改单边走 withRect，保证 width/height 派生字段同步
+  // 停靠四边的槽矩形(比例)——与命令层共用一份切分(geometry.dockSlotRect 同时供并集重排)
   const dkSlot: G.Rect | null = dock && dkTgtRect && dock.target !== "none" && dock.target !== "center"
-    ? (() => {
-        const f = dock.factorDock;
-        return dock.target === "left"
-          ? G.withRect(dkTgtRect, { xmax: dkTgtRect.xmin + dkTgtRect.width * f })
-          : dock.target === "right"
-            ? G.withRect(dkTgtRect, { xmin: dkTgtRect.xmax - dkTgtRect.width * f })
-            : dock.target === "bottom"
-              ? G.withRect(dkTgtRect, { ymax: dkTgtRect.ymin + dkTgtRect.height * f })
-              : G.withRect(dkTgtRect, { ymin: dkTgtRect.ymax - dkTgtRect.height * f });
-      })()
+    ? G.dockSlotRect(dkTgtRect, dock.target, dock.factorDock)
     : null;
 
   return (
